@@ -1,0 +1,17 @@
+{
+  "name": "logger-sentry",
+  "version": "1.0.0",
+  "description": "Observabilidad y auditoria: registro estructurado con Winston y captura de errores en tiempo real con Sentry para trazabilidad financiera",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "verify": "node --check src/index.js"
+  },
+  "dependencies": {
+    "@sentry/node": "^8.48.0",
+    "winston": "^3.17.0"
+  }
+}

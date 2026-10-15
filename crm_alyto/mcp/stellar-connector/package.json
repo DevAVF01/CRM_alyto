@@ -1,0 +1,17 @@
+{
+  "name": "stellar-connector",
+  "version": "1.0.0",
+  "description": "Conector MCP de pagos y wallets sobre Stellar Testnet: creacion de wallets custodiales, funding con friendbot y transferencias internacionales trazables",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "verify": "node --check src/index.js"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.3.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.0.1"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "notifications-mcp",
+  "version": "1.0.0",
+  "description": "Conector MCP de notificaciones: push web con VAPID, plantillas auditadas y control de conformidad de marca",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "verify": "node --check src/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.0.1",
+    "web-push": "^3.6.7"
+  }
+}

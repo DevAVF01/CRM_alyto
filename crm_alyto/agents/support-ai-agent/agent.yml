@@ -1,0 +1,9 @@
+name: support-ai-agent
+version: 1.0.0
+description: Asistente inteligente entrenado con el catalogo de objeciones comerciales B2B y plantillas auditadas para el equipo de atencion, con verificacion de conformidad normativa en cada respuesta.
+entrypoint: src/index.js
+interface: cli
+usage: node src/index.js "texto de la objecion del cliente"
+permissions:
+  - communications:read
+environment: {}

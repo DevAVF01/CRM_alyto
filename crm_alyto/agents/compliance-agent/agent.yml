@@ -1,0 +1,12 @@
+name: compliance-agent
+version: 1.0.0
+description: Monitorea de forma continua las operaciones frente a las directrices de la ASFI en el ECP, valida checklists de debida diligencia corporativa y asegura que no se expongan datos sensibles fuera de norma.
+entrypoint: src/index.js
+schedule: cada 30 segundos (POLL_INTERVAL_MS)
+permissions:
+  - compliance:read
+  - compliance:write
+  - audit:write
+environment:
+  BACKEND_URL: http://localhost:4000
+  AGENT_TOKEN: demo

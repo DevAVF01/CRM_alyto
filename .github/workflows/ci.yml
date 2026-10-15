@@ -1,0 +1,112 @@
+name: CI
+
+# GitHub solo lee los flujos que estan en .github/workflows de la raiz del repositorio.
+# El proyecto vive en crm_alyto/, asi que todas las rutas de este archivo llevan ese prefijo.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  brand-audit:
+    name: Auditoria del glosario institucional
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Terminologia ASFI / ECP
+        run: |
+          set -euo pipefail
+          # Los archivos que definen el glosario citan los terminos prohibidos a proposito,
+          # por eso van fuera de la auditoria.
+          EXCLUDED='(brandCopy\.ts|brandLinterMiddleware\.js|compliance-agent/rules\.ts|objectionsCatalog\.ts|services/api\.ts)'
+          files=$(git ls-files -- 'crm_alyto' \
+            | grep -E '\.(js|jsx|ts|tsx|json|sql|md|html|css)$' \
+            | grep -vE "$EXCLUDED" || true)
+          if [ -z "$files" ]; then
+            echo "No hay archivos que auditar."
+            exit 0
+          fi
+          # El filtro no debe encontrar ningun termino prohibido.
+          # "exchange" queda fuera del patron: aparece en exchangeRate, que es un nombre
+          # de campo legitimo y llenaria la auditoria de falsos positivos.
+          if grep -niE 'remesas|non[- ]custodial|tenemos licencia|somos los u(n|ó)nicos|plataforma de i(n|í)nversi(o|ó)n' $files; then
+            echo "::error::Termino no autorizado por el glosario institucional. Usar transferencias internacionales, custodia institucional, bajo supervision de ASFI."
+            exit 1
+          fi
+          echo "Glosario verificado."
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crm_alyto/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crm_alyto/backend/package-lock.json
+
+      # El backend enlaza las skills con file:../skills/*, igual que el Dockerfile.
+      - name: Instalar skills enlazadas
+        run: |
+          npm --prefix ../skills/security-auth install
+          npm --prefix ../skills/pdf-generator install
+          npm --prefix ../skills/logger-sentry install
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Verificar arranque
+        run: npm run verify
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crm_alyto/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crm_alyto/frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-frontend
+          path: crm_alyto/frontend/dist
+          if-no-files-found: error
+
+  docker:
+    name: Comprobar imagenes
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compilar imagen del frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: crm_alyto
+          file: crm_alyto/docker/Dockerfile.frontend
+          push: false
+
+      - name: Compilar imagen del backend
+        uses: docker/build-push-action@v6
+        with:
+          context: crm_alyto
+          file: crm_alyto/docker/Dockerfile.backend
+          push: false

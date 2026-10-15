@@ -1,0 +1,53 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    ports:
+      - "4000:4000"
+    env_file:
+      - path: backend/.env
+        required: false
+    environment:
+      NODE_ENV: production
+      MCP_STELLAR_URL: http://stellar-connector:4601
+      MCP_KYC_URL: http://kyc-aml-connector:4602
+      MCP_NOTIFICATIONS_URL: http://notifications-mcp:4603
+    depends_on:
+      - stellar-connector
+      - kyc-aml-connector
+      - notifications-mcp
+    restart: unless-stopped
+
+  stellar-connector:
+    build:
+      context: ./mcp/stellar-connector
+    ports:
+      - "4601:4601"
+    restart: unless-stopped
+
+  kyc-aml-connector:
+    build:
+      context: ./mcp/kyc-aml-connector
+    ports:
+      - "4602:4602"
+    restart: unless-stopped
+
+  notifications-mcp:
+    build:
+      context: ./mcp/notifications-mcp
+    ports:
+      - "4603:4603"
+    environment:
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:compliance@avfinance.bo}
+    restart: unless-stopped

@@ -1,0 +1,19 @@
+# Normaliza los finales de linea en el repositorio: se guardan con LF y cada sistema
+# operativo trabaja con su propio final al hacer checkout.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.node binary
+*.exe binary
+*.dll binary
+
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf

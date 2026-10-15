@@ -1,0 +1,13 @@
+# Reglas de alcance raiz. crm_alyto/.gitignore mantiene las mismas reglas para
+# el arbol del proyecto; esto evita sorpresas si se agregan dependencias fuera de el.
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+*.local
+logs/
+*.log
+.DS_Store
+Thumbs.db

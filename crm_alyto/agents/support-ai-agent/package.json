@@ -1,0 +1,10 @@
+{
+  "name": "support-ai-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Asistente de objeciones comerciales B2B con catalogo auditado",
+  "scripts": {
+    "start": "node src/index.js"
+  }
+}

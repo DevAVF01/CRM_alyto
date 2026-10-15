@@ -1,0 +1,12 @@
+name: pipeline-agent
+version: 1.0.0
+description: Automatiza y audita el flujo del embudo de transferencias internacionales en sus 6 etapas comerciales, asegurando la transición fluida de leads corporativos B2B a cuentas activas.
+entrypoint: src/index.js
+schedule: cada 45 segundos (POLL_INTERVAL_MS)
+permissions:
+  - deals:read
+  - deals:write
+  - compliance:read
+environment:
+  BACKEND_URL: http://localhost:4000
+  AGENT_TOKEN: demo

@@ -1,0 +1,16 @@
+{
+  "name": "kyc-aml-connector",
+  "version": "1.0.0",
+  "description": "Conector MCP de validacion y debida diligencia institucional: screening en listas restrictivas, checklist ECP y directrices ASFI",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "verify": "node --check src/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.0.1"
+  }
+}

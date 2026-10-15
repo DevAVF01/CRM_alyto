@@ -1,0 +1,17 @@
+{
+  "name": "pdf-generator",
+  "version": "1.0.0",
+  "description": "Generacion dinamica de comprobantes de transferencia internacional y fichas de validacion con marca institucional AV Finance, pdfkit y qrcode",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "verify": "node --check src/index.js"
+  },
+  "dependencies": {
+    "pdfkit": "^0.15.2",
+    "qrcode": "^1.5.4"
+  }
+}

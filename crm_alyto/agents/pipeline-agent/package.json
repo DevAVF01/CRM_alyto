@@ -1,0 +1,10 @@
+{
+  "name": "pipeline-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agente de automatización del pipeline B2B de transferencias internacionales",
+  "scripts": {
+    "start": "node src/index.js"
+  }
+}

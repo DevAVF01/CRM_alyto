@@ -1,0 +1,28 @@
+{
+  "name": "crm-alyto-backend",
+  "version": "1.0.0",
+  "description": "Backend del CRM Alyto para AV Finance S.R.L.: pipeline B2B, debida diligencia y trazabilidad de pagos transfronterizos en el ECP de ASFI",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "verify": "node -e \"import('./src/app.js').then(() => console.log('backend ok')).catch((err) => { console.error(err); process.exit(1); })\""
+  },
+  "dependencies": {
+    "@sentry/node": "^8.48.0",
+    "@supabase/supabase-js": "^2.47.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.0.1",
+    "firebase-admin": "^12.7.0",
+    "logger-sentry": "file:../skills/logger-sentry",
+    "pdf-generator": "file:../skills/pdf-generator",
+    "pdfkit": "^0.15.2",
+    "qrcode": "^1.5.4",
+    "security-auth": "file:../skills/security-auth",
+    "winston": "^3.17.0"
+  }
+}

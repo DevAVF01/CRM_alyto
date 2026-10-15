@@ -1,0 +1,16 @@
+FROM node:20-alpine
+WORKDIR /app
+
+# Las skills se instalan primero: el backend las enlaza con file:../skills/*
+# y cada skill resuelve sus propias dependencias desde su carpeta.
+COPY skills/ ./skills/
+RUN npm --prefix skills/security-auth install --omit=dev \
+ && npm --prefix skills/pdf-generator install --omit=dev \
+ && npm --prefix skills/logger-sentry install --omit=dev
+
+WORKDIR /app/backend
+COPY backend/package.json backend/package-lock.json* ./
+RUN npm install --omit=dev
+COPY backend/ ./
+EXPOSE 4000
+CMD ["node", "src/server.js"]

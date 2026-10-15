@@ -1,0 +1,78 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "srv: backend (4000)",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": ["--prefix", "backend", "run", "dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "srv: stellar connector (4601)",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": ["--prefix", "mcp/stellar-connector", "run", "dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "srv: kyc-aml connector (4602)",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": ["--prefix", "mcp/kyc-aml-connector", "run", "dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "srv: notifications (4603)",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": ["--prefix", "mcp/notifications-mcp", "run", "dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "srv: frontend (5173)",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": ["--prefix", "frontend", "run", "dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "crm_alyto: levantar todo",
+      "dependsOn": [
+        "srv: backend (4000)",
+        "srv: stellar connector (4601)",
+        "srv: kyc-aml connector (4602)",
+        "srv: notifications (4603)",
+        "srv: frontend (5173)"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "crm_alyto: comprobar tipos del frontend",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": ["--prefix", "frontend", "run", "typecheck"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "crm_alyto: comprobar que el backend arranca",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": ["--prefix", "backend", "run", "verify"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}

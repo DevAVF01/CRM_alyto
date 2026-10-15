@@ -1,0 +1,63 @@
+/**
+ * Roles y Permisos Institucionales (RBAC)
+ * AV Finance S.R.L. - Alyto CRM
+ */
+
+export type AppRole = 
+  | 'SUPER_ADMIN'
+  | 'COMPLIANCE_OFFICER'
+  | 'TRADER_OPERATOR'
+  | 'SALES_RELATIONSHIP_MANAGER'
+  | 'CLIENT_AUDITOR';
+
+export type AppPermission =
+  | 'VIEW_PIPELINE'
+  | 'ADVANCE_PIPELINE'
+  | 'APPROVE_DUE_DILIGENCE'
+  | 'MANAGE_WALLETS'
+  | 'EXECUTE_STELLAR_TRANSFER'
+  | 'DOWNLOAD_RECEIPTS'
+  | 'VIEW_COMPLIANCE_AUDIT'
+  | 'MANAGE_COMMUNICATIONS';
+
+export const ROLE_PERMISSIONS: Record<AppRole, AppPermission[]> = {
+  SUPER_ADMIN: [
+    'VIEW_PIPELINE',
+    'ADVANCE_PIPELINE',
+    'APPROVE_DUE_DILIGENCE',
+    'MANAGE_WALLETS',
+    'EXECUTE_STELLAR_TRANSFER',
+    'DOWNLOAD_RECEIPTS',
+    'VIEW_COMPLIANCE_AUDIT',
+    'MANAGE_COMMUNICATIONS'
+  ],
+  COMPLIANCE_OFFICER: [
+    'VIEW_PIPELINE',
+    'APPROVE_DUE_DILIGENCE',
+    'VIEW_COMPLIANCE_AUDIT',
+    'DOWNLOAD_RECEIPTS'
+  ],
+  TRADER_OPERATOR: [
+    'VIEW_PIPELINE',
+    'ADVANCE_PIPELINE',
+    'MANAGE_WALLETS',
+    'EXECUTE_STELLAR_TRANSFER',
+    'DOWNLOAD_RECEIPTS'
+  ],
+  SALES_RELATIONSHIP_MANAGER: [
+    'VIEW_PIPELINE',
+    'ADVANCE_PIPELINE',
+    'MANAGE_COMMUNICATIONS',
+    'DOWNLOAD_RECEIPTS'
+  ],
+  CLIENT_AUDITOR: [
+    'VIEW_PIPELINE',
+    'DOWNLOAD_RECEIPTS',
+    'VIEW_COMPLIANCE_AUDIT'
+  ]
+};
+
+export function hasPermission(role: AppRole, permission: AppPermission): boolean {
+  const permissions = ROLE_PERMISSIONS[role] || [];
+  return permissions.includes(permission);
+}
