@@ -10,6 +10,7 @@ import type { ChecklistStatus, ClientRecord } from '../types';
 import type { ClientDetail } from '../api/client';
 import { ApiError, api, downloadTransferReceipt, transferValidationSheet } from '../api/client';
 import { useApiData } from '../hooks/useApiData';
+import { SourcePill } from '../components/SourcePill';
 import {
   Badge,
   Icon,
@@ -136,9 +137,7 @@ export default function Client360Screen() {
           <h1 className="page-head__title">Directorio Institucional B2B</h1>
           <p className="page-head__sub">Perfil corporativo, custodia y trazabilidad operativa</p>
         </div>
-        <span className={`source-pill${live ? ' source-pill--live' : ''}`}>
-          {live ? 'Expediente en vivo' : 'Datos de demostración'}
-        </span>
+        <SourcePill live={live} liveLabel="Expediente del backend" />
       </div>
 
       <div className="client-layout">

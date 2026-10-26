@@ -118,7 +118,6 @@ export default function LoginScreen() {
                 className={`login__profile${email === profile.email ? ' login__profile--active' : ''}`}
                 onClick={() => {
                   setEmail(profile.email);
-                  setPassword('EcpDemo2026');
                 }}
               >
                 <Icon name="key" size={13} />
@@ -127,8 +126,8 @@ export default function LoginScreen() {
             ))}
           </div>
           <p className="login__profiles-hint">
-            En el Entorno Controlado de Pruebas el rol se deriva del prefijo del correo y cualquier contraseña
-            habilita la sesión.
+            Estos correos solo existen en el almacén de demostración. La contraseña es el valor de DEMO_PASSWORD en el
+            archivo .env del backend y ningún otro correo puede ingresar.
           </p>
         </div>
 

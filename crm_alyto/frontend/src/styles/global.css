@@ -189,9 +189,19 @@ button {
   background: var(--color-muted);
 }
 
-.source-pill--live .source-pill__dot {
+.source-pill--real .source-pill__dot {
   background: var(--color-success);
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+}
+
+.source-pill--demo .source-pill__dot {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(243, 208, 20, 0.25);
+}
+
+.source-pill--alerta .source-pill__dot {
+  background: var(--color-danger);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
 }
 
 .source-pill--topbar {
@@ -203,6 +213,42 @@ button {
 
 .source-pill--topbar:hover {
   background: rgba(255, 255, 255, 0.16);
+}
+
+.demobar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.demobar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.demobar--demo {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.demobar--demo .demobar__dot {
+  background: var(--color-accent);
+}
+
+.demobar--alerta {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.demobar--alerta .demobar__dot {
+  background: var(--color-danger);
 }
 
 @media (max-width: 1100px) {

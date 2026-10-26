@@ -1,9 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { COMPLIANCE_BADGE, LEGAL_FOOTER, NETWORK_PILL } from '../utils/brandCopy';
 import { useAuth } from '../auth/AuthContext';
-import { api } from '../api/client';
-import { useApiData } from '../hooks/useApiData';
-import { STAGES } from '../data/mock';
+import { useRuntime } from '../runtime/RuntimeProvider';
 import { Icon } from './ui';
 import type { IconName } from './ui';
 
@@ -18,7 +16,7 @@ const NAV_ITEMS: { to: string; label: string; icon: IconName; end?: boolean }[] 
 export default function Shell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const { live, reload } = useApiData<string[]>(() => api.meta.stages(), [...STAGES]);
+  const runtime = useRuntime();
 
   const handleLogout = () => {
     logout();
@@ -41,12 +39,12 @@ export default function Shell() {
         <div className="topbar__meta">
           <button
             type="button"
-            className={`source-pill source-pill--topbar${live ? ' source-pill--live' : ''}`}
-            title={live ? 'Backend de API alcanzable en /api' : 'Sin respuesta del backend, la interfaz usa datos de demostración'}
-            onClick={() => void reload()}
+            className={`source-pill source-pill--topbar source-pill--${runtime.tone}`}
+            title={`${runtime.label}. ${runtime.detail}`}
+            onClick={() => void runtime.reload()}
           >
             <span className="source-pill__dot" />
-            {live ? 'API conectada' : 'Modo demostración'}
+            {runtime.label}
           </button>
           <span className="network-pill">
             <span className="network-pill__dot" />
@@ -64,6 +62,15 @@ export default function Shell() {
           </button>
         </div>
       </header>
+
+      {runtime.tone !== 'real' ? (
+        <p className={`demobar demobar--${runtime.tone}`} role="status">
+          <span className="demobar__dot" />
+          {runtime.demo
+            ? 'Datos de demostración. No ingresar información real de clientes en este modo.'
+            : `${runtime.label}. ${runtime.detail}`}
+        </p>
+      ) : null}
 
       <nav className="bottomnav" aria-label="Navegación principal">
         {NAV_ITEMS.map((item) => (

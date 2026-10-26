@@ -8,6 +8,7 @@ import {
   requestLogger,
 } from 'logger-sentry';
 import { supabase } from './config/supabase.js';
+import { runtimeStatus } from './config/runtime.js';
 import routes from './routes/index.js';
 
 export function createApp() {
@@ -29,6 +30,7 @@ export function createApp() {
       environment: process.env.NODE_ENV || 'development',
       network: 'Stellar Testnet',
       regime: 'Entorno Controlado de Pruebas (ECP) supervisado por la ASFI',
+      runtime: runtimeStatus(),
     });
   });
 

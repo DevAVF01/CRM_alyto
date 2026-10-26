@@ -30,6 +30,22 @@ export interface SendResult {
   vars: Record<string, string>;
 }
 
+export interface RuntimeStatus {
+  demoMode: boolean;
+  supabaseConfigured: boolean;
+  authLayer: string;
+  dataLayer: string;
+}
+
+export interface HealthInfo {
+  status: string;
+  service: string;
+  environment: string;
+  network: string;
+  regime: string;
+  runtime: RuntimeStatus;
+}
+
 const STORAGE_KEY = 'alyto.ecp.session';
 
 export class ApiError extends Error {
@@ -87,6 +103,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 export const api = {
   meta: {
     stages: () => request<string[]>('/meta/stages'),
+    health: () => request<HealthInfo>('/health'),
   },
   clients: {
     list: () => request<ClientRecord[]>('/clients'),

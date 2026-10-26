@@ -1,13 +1,17 @@
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000';
 const INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 30000);
-const DEMO_SECRET = process.env.DEMO_AUTH_SECRET || 'ecp-demo';
 
-function agentToken() {
-  const payload = { id: 'compliance-agent', email: 'compliance-agent@alyto.local', role: 'compliance' };
-  return `demo.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.${DEMO_SECRET}`;
+// El agente no conoce la clave de firma de sesiones: recibe un token ya emitido.
+// Sin AGENT_TOKEN el proceso se detiene, en lugar de fabricarse credenciales de Oficial de Cumplimiento.
+const AGENT_TOKEN = process.env.AGENT_TOKEN;
+if (!AGENT_TOKEN) {
+  console.error(
+    '[ARRANQUE RECHAZADO] compliance-agent necesita AGENT_TOKEN. Emítalo desde el backend con: npm run agent-token compliance',
+  );
+  process.exit(1);
 }
 
-const AUTH_HEADER = { authorization: `Bearer ${process.env.AGENT_TOKEN && process.env.AGENT_TOKEN !== 'demo' ? process.env.AGENT_TOKEN : agentToken()}` };
+const AUTH_HEADER = { authorization: `Bearer ${AGENT_TOKEN}` };
 
 async function api(path, options = {}) {
   const res = await fetch(`${BACKEND_URL}${path}`, {

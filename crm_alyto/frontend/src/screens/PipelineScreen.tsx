@@ -5,6 +5,7 @@ import { MOCK_DEALS, PIPELINE_SUMMARY, STAGES, stageName } from '../data/mock';
 import type { DealRecord, DealStage } from '../types';
 import { api, ApiError } from '../api/client';
 import { useApiData } from '../hooks/useApiData';
+import { SourcePill } from '../components/SourcePill';
 import { Badge, Icon, healthTone, usd, useToast } from '../components/ui';
 
 export default function PipelineScreen() {
@@ -79,9 +80,7 @@ export default function PipelineScreen() {
           <h1 className="page-head__title">Embudo Comercial B2B</h1>
           <p className="page-head__sub">6 etapas, desde prospecto hasta cliente activo</p>
         </div>
-        <span className={`source-pill${live ? ' source-pill--live' : ''}`}>
-          {live ? 'Datos del backend' : 'Datos de demostración'}
-        </span>
+        <SourcePill live={live} liveLabel="Embudo del backend" />
       </div>
 
       <section className="grid grid--kpis section kanban-summary" aria-label="Resumen del embudo">

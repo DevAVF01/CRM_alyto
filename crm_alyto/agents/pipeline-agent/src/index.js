@@ -1,13 +1,16 @@
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000';
 const INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 45000);
-const DEMO_SECRET = process.env.DEMO_AUTH_SECRET || 'ecp-demo';
 
-function agentToken() {
-  const payload = { id: 'pipeline-agent', email: 'pipeline-agent@alyto.local', role: 'operaciones' };
-  return `demo.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.${DEMO_SECRET}`;
+// El agente no conoce la clave de firma de sesiones: recibe un token ya emitido.
+const AGENT_TOKEN = process.env.AGENT_TOKEN;
+if (!AGENT_TOKEN) {
+  console.error(
+    '[ARRANQUE RECHAZADO] pipeline-agent necesita AGENT_TOKEN. Emítalo desde el backend con: npm run agent-token pipeline-agent',
+  );
+  process.exit(1);
 }
 
-const AUTH_HEADER = { authorization: `Bearer ${process.env.AGENT_TOKEN && process.env.AGENT_TOKEN !== 'demo' ? process.env.AGENT_TOKEN : agentToken()}` };
+const AUTH_HEADER = { authorization: `Bearer ${AGENT_TOKEN}` };
 
 async function api(path, options = {}) {
   const res = await fetch(`${BACKEND_URL}${path}`, {

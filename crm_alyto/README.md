@@ -143,15 +143,18 @@ npm --prefix frontend run build      # bundle de producción
 
 Hay dos caminos y el backend decide cuál usar en tiempo de arranque (`backend/src/config/supabase.js`).
 
-### 3.1 Modo demo sin base de datos (por defecto)
+### 3.1 Modo demostración del ECP (`DEMO_MODE=true`)
 
-Si `SUPABASE_URL` o `SUPABASE_SERVICE_ROLE_KEY` están vacíos, `supabase` es `null` y todo se sirve desde `backend/src/data/store.js`: 7 expedientes corporativos, sus deals de 6 etapas, wallets custodiales, transacciones, checklists de debida diligencia y auditoría.
+El modo demostración es explícito. Sin `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`, y sin `DEMO_MODE=true` escrito literalmente, `backend/src/server.js` imprime `[ARRANQUE RECHAZADO]` y termina con código 1: una credencial mal escrita en un despliegue no abre el CRM en silencio.
+
+Con `DEMO_MODE=true` activo, `backend/src/data/store.js` sirve 7 expedientes corporativos, sus oportunidades de 6 etapas, wallets custodiales, transacciones, checklists de debida diligencia y auditoría. El arranque lo avisa por log, `/api/health` lo reporta en `runtime`, y la interfaz lo muestra en una franja bajo la cabecera y en cada pastilla de estado.
 
 Consecuencias a tener presente:
 
-* Los cambios se ven en la interfaz al instante y persisten mientras el proceso vive.
-* Al reiniciar el backend el almacén vuelve al estado sembrado original.
-* Los tokens son del formato `demo.<base64url>.<secreto>` y cualquier contraseña habilita la sesión.
+* Los cambios se ven en la interfaz al instante y persisten mientras el proceso vive; al reiniciar, el almacén vuelve al estado sembrado.
+* Los datos sembrados son ficticios y varios identificadores regulatorios están pendientes de corregir (ver la lista de tareas abiertas). No ingresar información real de clientes en este modo.
+* Las sesiones se firman con HMAC sobre `AUTH_SECRET` y caducan a las 12 horas. Solo entran los cinco correos de `backend/src/data/demoAccounts.js`, y solo con la contraseña de `DEMO_PASSWORD`. Ningún otro correo accede, aunque empiece con `admin`.
+* Con `DEMO_MODE=false` las rutas de datos responden `503 DATA_LAYER_NOT_CONFIGURED` hasta existir la capa de repositorio: sin base de datos real no se sirven datos de demostración.
 
 ### 3.2 Modo Supabase (producción del ECP)
 
@@ -165,6 +168,8 @@ Consecuencias a tener presente:
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<service_role>
 SUPABASE_ANON_KEY=<anon>
+DEMO_MODE=false
+AUTH_SECRET=<hex de 64, sigue siendo obligatorio para emitir tokens de agente>
 ```
 
 6. Reiniciar el backend.
@@ -227,11 +232,11 @@ Las pantallas nunca llaman a los conectores: siempre pasan por el backend, que e
 
 ### 4.2 Autenticación y roles
 
-* `POST /api/auth/login` devuelve `{data:{token,user}}`. Con Supabase usa `signInWithPassword` y toma el rol de `app_metadata.role`; sin Supabase deriva el rol del prefijo del correo.
-* El frontend guarda la sesión en `localStorage` bajo `alyto.ecp.session` y la restaura al recargar.
-* Cada petición siguiente lleva `Authorization: Bearer <token>`; `authenticate` reconstruye `req.user` y `requireRole(...)` decide si la ruta procede.
+* `POST /api/auth/login` devuelve `{data:{token,user}}`. Con Supabase usa `signInWithPassword` y toma el rol de `app_metadata.role`; en modo demostración busca el correo en `demoAccounts.js` y verifica `DEMO_PASSWORD`. Si el correo no está en la lista, o la contraseña no coincide, responde 401. No hay tercer camino: sin Supabase y sin `DEMO_MODE` responde 503.
+* El frontend guarda la sesión en `localStorage` bajo `alyto.ecp.session` y la restaura al recargar, pero la valida contra `GET /api/auth/me`; ante un 401 la descarta y devuelve al formulario de acceso.
+* Cada petición siguiente lleva `Authorization: Bearer <token>`. En modo demostración el token es `v1.<base64url de la carga>.<firma HMAC SHA-256>` y se verifica con comparación de tiempo constante antes de poblar `req.user`; `requireRole(...)` decide si la ruta procede.
 
-Roles y accesos de demostración (en modo demo la contraseña es irrelevante):
+Roles y accesos de demostración (los cinco correos, con la contraseña de `DEMO_PASSWORD`):
 
 | Correo | Rol | Alcance |
 | --- | --- | --- |
@@ -241,7 +246,7 @@ Roles y accesos de demostración (en modo demo la contraseña es irrelevante):
 | `ventas@avfinance.bo` | Fuerza de Ventas B2B | Pipeline y expedientes en lectura |
 | `soporte@avfinance.bo` | Atención y Soporte | Comunicaciones y catálogo de objeciones |
 
-El prefijo se reconoce con `@`, `.`, `_`, `+` o `-`, así que `compliance.bolivia@avfinance.bo` también resuelve como Oficial de Cumplimiento. En la pantalla de acceso hay chips que autocompletan cada perfil.
+La lista es cerrada y el rol sale de ella, no del texto del correo: `admin@atacante.com` recibe 401. En la pantalla de acceso hay chips que autocompletan cada perfil, sin autocompletar la contraseña.
 
 ### 4.3 Mapa de API
 
@@ -291,7 +296,7 @@ Para probar un conector aislado: `curl http://localhost:4602/health`.
 
 ### 4.6 Agentes
 
-* `compliance-agent`: sondeo cada 30 segundos, revisa expedientes con ítems observados o pendientes y deja asientos de auditoría usando un token de agente con rol `compliance` (mismo formato que `issueAgentToken` de la skill, derivado de `DEMO_AUTH_SECRET`).
+* `compliance-agent`: sondeo cada 30 segundos, revisa expedientes con ítems observados o pendientes y deja asientos de auditoría usando el token que le entrega `AGENT_TOKEN`. El agente no conoce la clave de firma: si falta `AGENT_TOKEN` el proceso se detiene. El token se emite desde el backend con `npm run agent-token compliance-agent`.
 * `pipeline-agent`: sondeo cada 45 segundos, audita coherencia entre etapa del deal y estado del checklist.
 * `support-ai-agent`: interfaz CLI, `node agents/support-ai-agent/src/index.js "texto de la objeción"`. Devuelve la objeción emparejada del catálogo con verificación de conformidad de marca antes de responder.
 
@@ -336,7 +341,9 @@ Mientras el backend lea de `store.js`, este modelo no interviene. El puente es l
 | `SENTRY_DSN` | Sin reporte de errores a Sentry, Winston sigue activo |
 | `MCP_*_URL` | Apunta a `localhost:4601/4602/4603` |
 | `VAPID_*` | El push de prueba informa que no hay canal configurado |
-| `DEMO_AUTH_SECRET` | `ecp-demo`; cambiarlo en cualquier despliegue |
+| `DEMO_MODE` | `true` solo para el almacén en memoria; sin él y sin Supabase el backend no arranca |
+| `AUTH_SECRET` | obligatorio con `DEMO_MODE=true`, mínimo 32 caracteres; firma las sesiones y los tokens de agente |
+| `DEMO_PASSWORD` | contraseña única de las cinco cuentas de demostración, mínimo 8 caracteres |
 | `VITE_API_URL` | Frontend; el proxy de desarrollo ya resuelve `/api` |
 
 ---

@@ -3,6 +3,7 @@ import { MOCK_CLIENTS, MOCK_OBJECTIONS, MOCK_TEMPLATES } from '../data/mock';
 import type { ClientRecord, Objection, Template } from '../types';
 import { ApiError, api } from '../api/client';
 import { useApiData } from '../hooks/useApiData';
+import { SourcePill } from '../components/SourcePill';
 import { Badge, Icon, copyToClipboard, useToast } from '../components/ui';
 
 const TEMPLATE_FILTERS = ['Todas', 'Primer Acercamiento', 'Instrucciones', 'Seguimiento'] as const;
@@ -95,9 +96,7 @@ export default function CommunicationsScreen() {
           <h1 className="page-head__title">Comunicaciones y Plantillas</h1>
           <p className="page-head__sub">Biblioteca auditada y asistente de objeciones B2B</p>
         </div>
-        <span className={`source-pill${live ? ' source-pill--live' : ''}`}>
-          {live ? 'Biblioteca sincronizada' : 'Datos de demostración'}
-        </span>
+        <SourcePill live={live} liveLabel="Biblioteca del backend" />
       </div>
 
       <section className="card assistant section" aria-label="Asistente IA de objeciones">

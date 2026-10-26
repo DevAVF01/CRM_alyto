@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { login, me } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
+import { requireDataLayer } from '../middleware/dataLayer.js';
 import { store } from '../data/store.js';
 import clientRoutes from './clients.routes.js';
 import transferRoutes from './transfers.routes.js';
@@ -15,15 +16,17 @@ export default function routes() {
 
   router.post('/auth/login', login);
   router.get('/auth/me', authenticate, me);
-  router.get('/meta/stages', authenticate, (req, res) => res.json({ data: store.stages }));
+  router.get('/meta/stages', authenticate, requireDataLayer, (req, res) => res.json({ data: store.stages }));
 
-  router.use('/clients', authenticate, clientRoutes);
-  router.use('/transfers', authenticate, transferRoutes);
-  router.use('/deals', authenticate, dealRoutes);
-  router.use('/compliance', authenticate, complianceRoutes);
-  router.use('/communications', authenticate, communicationsRoutes);
-  router.use('/reports', authenticate, reportsRoutes);
-  router.use('/notifications', authenticate, notificationsRoutes);
+  const dataRoutes = [authenticate, requireDataLayer];
+
+  router.use('/clients', ...dataRoutes, clientRoutes);
+  router.use('/transfers', ...dataRoutes, transferRoutes);
+  router.use('/deals', ...dataRoutes, dealRoutes);
+  router.use('/compliance', ...dataRoutes, complianceRoutes);
+  router.use('/communications', ...dataRoutes, communicationsRoutes);
+  router.use('/reports', ...dataRoutes, reportsRoutes);
+  router.use('/notifications', ...dataRoutes, notificationsRoutes);
 
   return router;
 }

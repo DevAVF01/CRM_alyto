@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
+import { RuntimeProvider } from './runtime/RuntimeProvider';
 import Shell from './components/Shell';
 import LoginScreen from './screens/LoginScreen';
 import DashboardScreen from './screens/DashboardScreen';
@@ -17,22 +18,24 @@ function RequireAuth() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginScreen />} />
-          <Route element={<RequireAuth />}>
-            <Route element={<Shell />}>
-              <Route index element={<DashboardScreen />} />
-              <Route path="pipeline" element={<PipelineScreen />} />
-              <Route path="clientes" element={<Client360Screen />} />
-              <Route path="clientes/:clientId" element={<Client360Screen />} />
-              <Route path="comunicaciones" element={<CommunicationsScreen />} />
-              <Route path="cumplimiento" element={<ComplianceScreen />} />
+      <RuntimeProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginScreen />} />
+            <Route element={<RequireAuth />}>
+              <Route element={<Shell />}>
+                <Route index element={<DashboardScreen />} />
+                <Route path="pipeline" element={<PipelineScreen />} />
+                <Route path="clientes" element={<Client360Screen />} />
+                <Route path="clientes/:clientId" element={<Client360Screen />} />
+                <Route path="comunicaciones" element={<CommunicationsScreen />} />
+                <Route path="cumplimiento" element={<ComplianceScreen />} />
+              </Route>
             </Route>
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </RuntimeProvider>
     </AuthProvider>
   );
 }

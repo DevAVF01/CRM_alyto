@@ -19,8 +19,9 @@ jobs:
         run: |
           set -euo pipefail
           # Los archivos que definen el glosario citan los terminos prohibidos a proposito,
-          # por eso van fuera de la auditoria.
-          EXCLUDED='(brandCopy\.ts|brandLinterMiddleware\.js|compliance-agent/rules\.ts|objectionsCatalog\.ts|services/api\.ts)'
+          # por eso van fuera de la auditoria. Lo mismo aplica a las pruebas unitarias, que
+          # deben escribir los terminos vetados para comprobar que se detectan.
+          EXCLUDED='(brandCopy\.ts|brandLinterMiddleware\.js|compliance-agent/rules\.ts|objectionsCatalog\.ts|PLAN\.md|0006_glossary_seed\.sql|\.test\.(js|ts|tsx)$)'
           files=$(git ls-files -- 'crm_alyto' \
             | grep -E '\.(js|jsx|ts|tsx|json|sql|md|html|css)$' \
             | grep -vE "$EXCLUDED" || true)
@@ -65,6 +66,9 @@ jobs:
       - name: Verificar arranque
         run: npm run verify
 
+      - name: Pruebas unitarias
+        run: npm test
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
@@ -89,6 +93,26 @@ jobs:
           name: dist-frontend
           path: crm_alyto/frontend/dist
           if-no-files-found: error
+
+  unit-tests-ts:
+    name: Pruebas unitarias TS (frontend y agentes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24 ejecuta TypeScript sin compilacion previa, y estos modulos no
+      # importan dependencias, asi que no hace falta instalar nada.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Pruebas del frontend
+        working-directory: crm_alyto/frontend
+        run: npm test
+
+      - name: Pruebas del agente de cumplimiento
+        working-directory: crm_alyto/agents/compliance-agent
+        run: npm test
 
   docker:
     name: Comprobar imagenes

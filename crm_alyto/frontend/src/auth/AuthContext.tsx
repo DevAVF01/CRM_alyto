@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SessionUser } from '../types';
 
@@ -11,22 +11,6 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-const DEMO_ROLE_RULES: [RegExp, SessionUser['role']][] = [
-  [/^admin[@._+-]/i, 'admin'],
-  [/^(compliance|cumplimiento)[@._+-]/i, 'compliance'],
-  [/^(operaciones|ops)[@._+-]/i, 'operaciones'],
-  [/^(soporte|support)[@._+-]/i, 'soporte'],
-];
-
-function inferDemoRole(email: string): SessionUser['role'] {
-  return DEMO_ROLE_RULES.find(([pattern]) => pattern.test(email))?.[1] ?? 'ventas';
-}
-
-function demoToken(payload: Record<string, string>): string {
-  const body = btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return `demo.${body}.ecp-demo`;
-}
 
 function loadSession(): SessionUser | null {
   try {
@@ -69,18 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(() => loadSession());
 
   const login = useCallback(async (email: string, password: string) => {
-    let session: SessionUser;
-    try {
-      session = await requestLogin(email, password);
-    } catch {
-      const role = inferDemoRole(email);
-      session = {
-        id: `demo-${role}`,
-        email,
-        role,
-        accessToken: demoToken({ id: `demo-${role}`, email, role }),
-      };
-    }
+    const session = await requestLogin(email, password);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
     setUser(session);
     return session;
@@ -90,6 +63,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(STORAGE_KEY);
     setUser(null);
   }, []);
+
+  // Una sesion guardada en el navegador puede traer un token de una version anterior del
+  // backend. Se valida contra /auth/me y ante 401 se descarta en lugar de dejarla pasar.
+  useEffect(() => {
+    const accessToken = user?.accessToken;
+    if (!accessToken) return;
+    let activo = true;
+    void fetch('/api/auth/me', { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then((response) => {
+        if (activo && response.status === 401) {
+          localStorage.removeItem(STORAGE_KEY);
+          setUser(null);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      activo = false;
+    };
+  }, [user?.accessToken]);
 
   const value = useMemo(() => ({ user, login, logout }), [user, login, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

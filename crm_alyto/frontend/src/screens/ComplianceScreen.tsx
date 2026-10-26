@@ -10,6 +10,7 @@ import type { AuditEvent, ClientRecord, ComplianceSummary, EcpLimits } from '../
 import type { EcpDirective } from '../api/client';
 import { ApiError, api } from '../api/client';
 import { useApiData } from '../hooks/useApiData';
+import { SourcePill } from '../components/SourcePill';
 import { Badge, Icon, usd, useToast } from '../components/ui';
 
 const GREEN_PCT = 78;
@@ -83,9 +84,7 @@ export default function ComplianceScreen() {
           <h1 className="page-head__title">Monitoreo Normativo y Debida Diligencia</h1>
           <p className="page-head__sub">Expedientes, checklist regulatorio y trazabilidad de auditoría</p>
         </div>
-        <span className={`source-pill${live ? ' source-pill--live' : ''}`}>
-          {live ? 'Cumplimiento en vivo' : 'Datos de demostración'}
-        </span>
+        <SourcePill live={live} liveLabel="Cumplimiento del backend" />
       </div>
 
       <section className="card card--dark regime-banner section" aria-label="Régimen de supervisión">

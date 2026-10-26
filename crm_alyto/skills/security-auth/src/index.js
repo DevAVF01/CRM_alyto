@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
 export const ROLES = Object.freeze({
   ADMIN: 'admin',
   COMPLIANCE: 'compliance',
@@ -14,21 +16,11 @@ export const ROLE_LABELS = Object.freeze({
   soporte: 'Atencion y Soporte',
 });
 
-const DEFAULT_DEMO_SECRET = 'ecp-demo';
+const ROLE_VALUES = Object.freeze(Object.values(ROLES));
 
-function encodeDemoToken(payload, secret) {
-  return `demo.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.${secret}`;
-}
-
-function decodeDemoToken(token, secret) {
-  const [prefix, body, suffix] = token.split('.');
-  if (prefix !== 'demo' || !body || suffix !== secret) return null;
-  try {
-    return JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-  } catch {
-    return null;
-  }
-}
+const TOKEN_PREFIX = 'v1';
+const MIN_SECRET_LENGTH = 32;
+const SESSION_TTL_SECONDS = 12 * 3600;
 
 function httpError(status, message, code) {
   const err = new Error(message);
@@ -38,24 +30,93 @@ function httpError(status, message, code) {
   return err;
 }
 
-const DEMO_ROLE_PATTERNS = [
-  [/^admin[@._+-]/i, ROLES.ADMIN],
-  [/^(compliance|cumplimiento)[@._+-]/i, ROLES.COMPLIANCE],
-  [/^(operaciones|ops)[@._+-]/i, ROLES.OPERACIONES],
-  [/^(soporte|support)[@._+-]/i, ROLES.SOPORTE],
-];
-
-function inferDemoRole(email) {
-  for (const [pattern, role] of DEMO_ROLE_PATTERNS) {
-    if (pattern.test(email)) return role;
+export function assertAuthSecret(secret) {
+  if (typeof secret !== 'string' || secret.trim().length < MIN_SECRET_LENGTH) {
+    throw new Error(
+      `AUTH_SECRET falta o es demasiado corto. Hace falta una cadena aleatoria de al menos ${MIN_SECRET_LENGTH} caracteres. ` +
+        'Sin ese secreto el backend no arranca, porque un token sin firma se puede fabricar a mano.',
+    );
   }
-  return ROLES.VENTAS;
+  return secret;
 }
 
-export function createAuth({ supabase = null } = {}) {
-  const demoSecret = process.env.DEMO_AUTH_SECRET || DEFAULT_DEMO_SECRET;
+function signature(body, secret) {
+  return createHmac('sha256', secret).update(body).digest('base64url');
+}
+
+export function signSession(payload, secret) {
+  assertAuthSecret(secret);
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${TOKEN_PREFIX}.${body}.${signature(body, secret)}`;
+}
+
+export function verifySession(token, secret, nowSeconds) {
+  if (typeof token !== 'string' || typeof secret !== 'string') return null;
+  const [prefix, body, supplied] = token.split('.');
+  if (prefix !== TOKEN_PREFIX || !body || !supplied) return null;
+
+  const expected = signature(body, secret);
+  const a = Buffer.from(supplied);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (!payload || typeof payload.id !== 'string' || !ROLE_VALUES.includes(payload.role)) return null;
+
+  const now = nowSeconds ?? Math.floor(Date.now() / 1000);
+  if (typeof payload.exp !== 'number' || payload.exp <= now) return null;
+  return payload;
+}
+
+function lookupDemoAccount(demoAccounts, email) {
+  const wanted = String(email || '')
+    .trim()
+    .toLowerCase();
+  if (!wanted) return null;
+  return demoAccounts.find((account) => String(account.email).toLowerCase() === wanted) ?? null;
+}
+
+export function createAuth({
+  supabase = null,
+  demoMode = false,
+  authSecret = process.env.AUTH_SECRET,
+  demoAccounts = [],
+  demoPassword = process.env.DEMO_PASSWORD,
+  sessionTtlSeconds = SESSION_TTL_SECONDS,
+} = {}) {
+  if (demoMode) {
+    assertAuthSecret(authSecret);
+    if (typeof demoPassword !== 'string' || demoPassword.length < 8) {
+      throw new Error('DEMO_PASSWORD falta o tiene menos de 8 caracteres. En modo demostracion la contrasena tambien se valida.');
+    }
+    if (demoAccounts.length === 0) {
+      throw new Error('No hay cuentas de demostracion configuradas. El backend no puede aceptar correos libres.');
+    }
+  }
+
+  const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+  function issueSession(account) {
+    return signSession(
+      {
+        id: account.id,
+        email: account.email,
+        role: account.role,
+        iat: nowSeconds(),
+        exp: nowSeconds() + sessionTtlSeconds,
+      },
+      authSecret,
+    );
+  }
 
   async function signInWithPassword({ email, password } = {}) {
+    if (!email || !password) throw httpError(400, 'Email y contrasena requeridos', 'INVALID_CREDENTIALS');
+
     if (supabase) {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw httpError(401, 'Credenciales invalidas');
@@ -68,9 +129,13 @@ export function createAuth({ supabase = null } = {}) {
         },
       };
     }
-    if (!email || !password) throw httpError(400, 'Email y contrasena requeridos', 'INVALID_CREDENTIALS');
-    const user = { id: `demo-${Date.now()}`, email, role: inferDemoRole(email) };
-    return { token: encodeDemoToken(user, demoSecret), user };
+
+    if (!demoMode) {
+      throw httpError(503, 'Sin base de datos configurada y sin modo demostracion activo', 'DATA_LAYER_NOT_CONFIGURED');
+    }
+    const account = lookupDemoAccount(demoAccounts, email);
+    if (!account || password !== demoPassword) throw httpError(401, 'Credenciales invalidas');
+    return { token: issueSession(account), user: { id: account.id, email: account.email, role: account.role } };
   }
 
   async function authenticate(req, res, next) {
@@ -90,7 +155,8 @@ export function createAuth({ supabase = null } = {}) {
         return next();
       }
 
-      const payload = decodeDemoToken(token, demoSecret);
+      if (!demoMode) throw httpError(503, 'Sin base de datos configurada y sin modo demostracion activo', 'DATA_LAYER_NOT_CONFIGURED');
+      const payload = verifySession(token, authSecret);
       if (!payload) throw httpError(401, 'Sesion invalida o expirada');
       req.user = payload;
       return next();
@@ -109,8 +175,9 @@ export function createAuth({ supabase = null } = {}) {
     };
   }
 
-  function issueAgentToken(agent) {
-    return encodeDemoToken({ id: agent, email: `${agent}@alyto.local`, role: ROLES.COMPLIANCE }, demoSecret);
+  function issueAgentToken(agent, role = ROLES.COMPLIANCE) {
+    if (!ROLE_VALUES.includes(role)) throw new Error(`Rol de agente invalido: ${role}`);
+    return issueSession({ id: agent, email: `${agent}@alyto.local`, role });
   }
 
   return { signInWithPassword, authenticate, requireRole, issueAgentToken };
