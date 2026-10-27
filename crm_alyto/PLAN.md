@@ -90,7 +90,8 @@ primera operación acompañada, y recurrencia.
 Proyecto Supabase del CRM: `crm-alyto-ecp`, región São Paulo. La URL del proyecto y las llaves no
 van en este documento ni en el repositorio: viven en `backend/.env`, que está excluido de Git.
 Solo tablas de CRM. Nada de la app de pagos. La remodelación decidida el 27/10 para adaptar la base
-al CRM de mensajería está en `backend/supabase/REMODELADO.md`.
+al CRM de mensajería está en `documentacion-interna/REMODELADO.md`, fuera de Git a propósito: es la
+discusión de diseño, no una instrucción de despliegue.
 
 | Grupo | Tablas | Nota |
 | --- | --- | --- |
