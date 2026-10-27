@@ -73,5 +73,8 @@ main().catch((err) => {
   if (err.message === 'fetch failed') {
     console.error(`El backend no contesta en ${base}. Levantelo antes con: npm run dev`);
   }
-  process.exit(1);
+  // En Windows process.exit() con la terminal de readline y un socket de fetch todavia en cierre
+  // dispara un assert nativo de libuv (UV_HANDLE_CLOSING) que tapa el mensaje anterior. Se suelta
+  // el codigo y se deja que el bucle de eventos termine solo.
+  process.exitCode = 1;
 });
