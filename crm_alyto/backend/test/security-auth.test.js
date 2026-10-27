@@ -202,3 +202,111 @@ test('las cuentas de demostracion cubren los cinco roles y ninguno se repite', (
   assert.deepEqual([...roles].sort(), Object.values(ROLES).sort());
   assert.equal(new Set(roles).size, roles.length);
 });
+
+// ---- rama Supabase: el rol lo dice la tabla profiles, no el token ----
+
+const SUPABASE_JWT = 'eyJhbGciOi.mock.jwt-de-prueba';
+
+function fakeSupabase(user) {
+  return {
+    auth: {
+      async signInWithPassword() {
+        return { data: { session: { access_token: SUPABASE_JWT }, user } };
+      },
+      async getUser(token) {
+        return token === SUPABASE_JWT
+          ? { data: { user } }
+          : { error: new Error('invalid jwt'), data: { user: null } };
+      },
+    },
+  };
+}
+
+// app_metadata dice admin a proposito: la prueba comprueba que ese valor se ignora.
+const USUARIO = {
+  id: '00000000-0000-4000-8000-000000000001',
+  email: 'operaciones@avfinance.bo',
+  app_metadata: { role: ROLES.ADMIN },
+  user_metadata: {},
+};
+
+function buildSupabaseAuth(rolDeLaBase) {
+  const vistos = [];
+  const instance = createAuth({
+    supabase: fakeSupabase(USUARIO),
+    demoMode: false,
+    authSecret: SECRET,
+    roleResolver: async (token) => {
+      vistos.push(token);
+      return rolDeLaBase;
+    },
+  });
+  return { instance, vistos };
+}
+
+test('createAuth exige roleResolver cuando hay Supabase configurado', () => {
+  assert.throws(
+    () => createAuth({ supabase: fakeSupabase(USUARIO), demoMode: false, authSecret: SECRET }),
+    /roleResolver/,
+  );
+});
+
+test('el rol del login sale de la base y no del token de Supabase', async () => {
+  const { instance, vistos } = buildSupabaseAuth(ROLES.OPERACIONES);
+  const { token, user } = await instance.signInWithPassword({
+    email: USUARIO.email,
+    password: 'cualquiera',
+  });
+  assert.equal(user.role, ROLES.OPERACIONES, 'app_metadata dice admin y la base dice operaciones');
+  assert.equal(token, SUPABASE_JWT);
+  assert.deepEqual(vistos, [SUPABASE_JWT]);
+});
+
+test('sin perfil con rol en la base el acceso se rechaza en lugar de suponer un rol', async () => {
+  for (const rolDeLaBase of [null, 'duenio', undefined]) {
+    const { instance } = buildSupabaseAuth(rolDeLaBase);
+    await assert.rejects(
+      () => instance.signInWithPassword({ email: USUARIO.email, password: 'cualquiera' }),
+      (err) => err.status === 403 && err.code === 'PROFILE_WITHOUT_ROLE',
+      `un rol devuelto por la base como "${String(rolDeLaBase)}" no puede abrir el CRM`,
+    );
+  }
+});
+
+test('authenticate resuelve el rol en cada peticion, no una sola vez', async () => {
+  const { instance, vistos } = buildSupabaseAuth(ROLES.COMPLIANCE);
+  const primera = await runAuthenticate(instance, SUPABASE_JWT);
+  const segunda = await runAuthenticate(instance, SUPABASE_JWT);
+  assert.equal(primera.error, null);
+  assert.equal(primera.user.role, ROLES.COMPLIANCE);
+  assert.equal(segunda.user.role, ROLES.COMPLIANCE);
+  assert.equal(vistos.length, 2, 'cada peticion vuelve a preguntar el rol a la base');
+});
+
+test('authenticate rechaza un token de Supabase invalido', async () => {
+  const { instance } = buildSupabaseAuth(ROLES.VENTAS);
+  const { error } = await runAuthenticate(instance, 'jwt-de-otro-sitio');
+  assert.equal(error.status, 401);
+});
+
+// Con la base real montada, los agentes siguen entrando con su token firmado: si esta rama se
+// cayera, pasar de modo demostracion a Supabase dejaria a compliance-agent y pipeline-agent
+// sin poder llamar al backend.
+test('con Supabase montado el token del agente sigue sirviendo', async () => {
+  const { instance } = buildSupabaseAuth(ROLES.COMPLIANCE);
+  const tokenDeAgente = instance.issueAgentToken('pipeline-agent', ROLES.OPERACIONES);
+  const { error, user } = await runAuthenticate(instance, tokenDeAgente);
+  assert.equal(error, null);
+  assert.equal(user.id, 'pipeline-agent');
+  assert.equal(user.role, ROLES.OPERACIONES);
+});
+
+test('con Supabase montado un token propio expirado sigue rechazado', async () => {
+  const { instance } = buildSupabaseAuth(ROLES.COMPLIANCE);
+  const expirado = signSession(
+    { id: 'demo-ventas', email: 'ventas@avfinance.bo', role: ROLES.VENTAS, iat: 1, exp: 2 },
+    SECRET,
+  );
+  const { error } = await runAuthenticate(instance, expirado);
+  assert.equal(error.status, 401);
+});

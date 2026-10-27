@@ -842,8 +842,8 @@ estaba.
 ### El control fuera de línea
 
 Antes de entregar un fichero SQL al panel se ejecuta contra un PostgreSQL de verdad en local
-(PGlite, que es PostgreSQL compilado a WebAssembly), en
-`C:\Users\Denzel C\Documents\Qoder\2026-10-13\647fe3c5\sqlcheck\`:
+(PGlite, que es PostgreSQL compilado a WebAssembly). El control todavía no está dentro del
+repositorio; es la Fase pendiente de llevarlo y engancharlo a la integración continua:
 
 ```
 node pglite.mjs "<ruta de backend/supabase>"   # aplica todo, simula Auth, corre las 9 pruebas
@@ -868,9 +868,9 @@ migraciones. Si cambias una migración, vuelve a correrlo y actualiza la secció
    (`vw_cadence_pending`) y soporte.
 4. **El plazo legal del reclamo**: sigue sin dato. `claims.due_at` se deja en `null` hasta que
    Álvaro lo confirme.
-5. **El tope del agente de cumplimiento**: `agents/compliance-agent/rules.ts` tiene
-   `maxLimitBob = 350000` y el parámetro de la base dice 120.000. Hay que decidir cuál manda y
-   que el otro lea de la base.
+5. **El tope del agente de cumplimiento**: cerrado el 26/10. `agents/compliance-agent/rules.ts`
+   decía 350.000 y el parámetro de la base dice 120.000; el agente ya usa 120.000. Queda pendiente
+   que lea el valor de `ecp_parameters` en lugar de tenerlo escrito.
 6. **La CI no ejecuta SQL.** PGlite puede hacerlo; falta conectarlo al flujo de GitHub Actions.
 7. **Lo que este esquema no cubre a propósito**: contabilidad doble, cotización de tipo de cambio
    y el detalle de las operaciones de transferencia. Los tres son de la aplicación de pagos.

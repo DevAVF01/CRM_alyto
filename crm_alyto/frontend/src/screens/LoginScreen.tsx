@@ -48,7 +48,7 @@ export default function LoginScreen() {
     <div className="login">
       <div className="login__card">
         <img className="login__logo" src="/logo.png" alt="Alyto" />
-        <p className="login__kicker">Plataforma Financiera Multientidad</p>
+        <p className="login__kicker">CRM de Operaciones y Servicio</p>
         <h1>Bienvenido de nuevo</h1>
         <p className="login__sub">Accede a tu cuenta Alyto CRM</p>
 
@@ -67,10 +67,7 @@ export default function LoginScreen() {
           </div>
 
           <div className="field">
-            <div className="field__row">
-              <label htmlFor="password">Contraseña</label>
-              <span className="field__link">¿Olvidaste tu contraseña?</span>
-            </div>
+            <label htmlFor="password">Contraseña</label>
             <div className="input__wrap">
               <input
                 id="password"
@@ -90,6 +87,7 @@ export default function LoginScreen() {
                 <Icon name={showPassword ? 'eyeOff' : 'eye'} size={17} />
               </button>
             </div>
+            <span className="field__hint">La contraseña la asigna la administración</span>
           </div>
 
           <label className="checkbox">
@@ -132,9 +130,9 @@ export default function LoginScreen() {
         </div>
 
         <p className="login__footer">
-          ¿No tienes cuenta? <strong>Regístrate</strong>
+          Las cuentas de Alyto CRM las crea la administración con el rol que corresponde a cada persona.
           <br />
-          Al continuar usted acepta los Términos de Servicio de AV Finance LLC, SpA y SRL.
+          Al continuar usted acepta los Términos de Servicio de AV Finance S.R.L.
           <br />
           {COMPLIANCE_BADGE} | {NETWORK_PILL}
         </p>

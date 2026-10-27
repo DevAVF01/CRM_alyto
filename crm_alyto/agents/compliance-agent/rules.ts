@@ -48,7 +48,7 @@ export const ECP_COMPLIANCE_RULES: ECPComplianceRule[] = [
     description: 'Las transferencias internacionales dentro del ECP de ASFI no deben superar el cupo autorizado por operación.',
     severity: 'HIGH',
     validate: (tx) => {
-      const maxLimitBob = 350000; // Cupo de prueba ECP
+      const maxLimitBob = 120000; // Tope por operacion de prueba dentro del ECP
       if (tx.amountBob && Number(tx.amountBob) > maxLimitBob) {
         return { valid: false, reason: `El monto excede el cupo máximo por operación en ECP (${maxLimitBob} BOB).` };
       }

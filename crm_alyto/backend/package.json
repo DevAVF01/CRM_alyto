@@ -11,6 +11,7 @@
     "dev": "node --watch src/server.js",
     "verify": "node -e \"import('./src/app.js').then(() => console.log('backend ok')).catch((err) => { console.error(err); process.exit(1); })\"",
     "agent-token": "node scripts/issue-agent-token.js",
+    "chequeo:datos": "node scripts/chequeo-capa-datos.js",
     "test": "node --test"
   },
   "dependencies": {

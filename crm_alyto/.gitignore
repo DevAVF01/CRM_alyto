@@ -6,3 +6,6 @@ build/
 logs/
 *.log
 .DS_Store
+
+# Notas internas de ejecucion y de auditoria: se guardan en OneDrive, no en Git.
+documentacion-interna/

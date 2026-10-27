@@ -8,9 +8,7 @@ El sistema corre completo sin credenciales externas: si no hay Supabase configur
 
 ## 1. Dónde está el proyecto
 
-```
-C:\Users\Denzel C\Documents\Qoder\2026-10-13\647fe3c5\crm_alyto
-```
+La carpeta `crm_alyto` del repositorio `DevAVF01/CRM_alyto`, en la rama `main`.
 
 Árbol:
 
@@ -25,12 +23,13 @@ crm_alyto/
 │   │   ├── app.js             Middlewares, Sentry, Winston, rutas
 │   │   ├── server.js          Punto de entrada
 │   │   ├── config/            supabase.js, firebase.js
-│   │   ├── controllers/       auth, clients, deals, compliance, communications, reports, notifications
+│   │   ├── controllers/       auth, clients, deals, compliance, communications, messaging, reports, notifications
 │   │   ├── data/store.js      Almacén en memoria sembrado (modo demo del ECP)
+│   │   ├── data/repository.js Las cuatro lecturas sobre las vistas, con la sesión del usuario
 │   │   ├── middleware/auth.js authenticate y requireRole desde la skill
 │   │   ├── routes/            Montaje bajo /api
 │   │   └── services/          stellarService, kycService, notificationService
-│   ├── supabase/migrations/   Modelo de datos: 4 migraciones, 17 tablas, RLS y Storage
+│   ├── supabase/migrations/   Modelo de datos: 6 migraciones, 26 tablas, RLS y Storage
 │   ├── supabase/seed.sql      Datos de arranque del expediente del ECP
 │   ├── supabase/legacy/       Borrador de esquema anterior, no se ejecuta
 │   └── .env.example
@@ -53,9 +52,14 @@ crm_alyto/
 │   ├── pdf-generator/         pdfkit + qrcode
 │   ├── logger-sentry/         Winston + Sentry + errorHandler
 │   └── security-auth/         Tokens, RBAC y requireRole
-├── .github/workflows/ci.yml
-└── docker-compose.yml
+├── docker-compose.yml
+├── FUNCIONALIDADES.md         Alcance: las 38 funcionalidades, los 6 viajes y su orden
+└── PLAN.md                    Mapa de trabajo, reglas de negocio y glosario
 ```
+
+La integración continua no está dentro de esta carpeta: el repositorio de Git tiene su raíz un
+nivel arriba, y GitHub solo lee los flujos de `.github/workflows` desde esa raíz. El flujo vive en
+`../.github/workflows/ci.yml` y todas sus rutas llevan el prefijo `crm_alyto/`.
 
 Requisitos: Node.js 20 o superior (verificado en v24.18.0) y npm.
 
@@ -154,14 +158,14 @@ Consecuencias a tener presente:
 * Los cambios se ven en la interfaz al instante y persisten mientras el proceso vive; al reiniciar, el almacén vuelve al estado sembrado.
 * Los datos sembrados son ficticios y varios identificadores regulatorios están pendientes de corregir (ver la lista de tareas abiertas). No ingresar información real de clientes en este modo.
 * Las sesiones se firman con HMAC sobre `AUTH_SECRET` y caducan a las 12 horas. Solo entran los cinco correos de `backend/src/data/demoAccounts.js`, y solo con la contraseña de `DEMO_PASSWORD`. Ningún otro correo accede, aunque empiece con `admin`.
-* Con `DEMO_MODE=false` las rutas de datos responden `503 DATA_LAYER_NOT_CONFIGURED` hasta existir la capa de repositorio: sin base de datos real no se sirven datos de demostración.
+* Con `DEMO_MODE=false` las rutas antiguas responden `503 DATA_LAYER_NOT_CONFIGURED`: esos datos solo existen en el almacén en memoria. Las lecturas reales de la base (`/api/messaging`) no dependen de `DEMO_MODE` y piden las tres variables de Supabase.
 
 ### 3.2 Modo Supabase (producción del ECP)
 
-1. Crear el proyecto en el panel de Supabase y copiar la URL del proyecto, la `anon key` y la `service_role key`.
-2. Abrir **SQL Editor** y ejecutar los cuatro archivos de `backend/supabase/migrations/` en orden numerado. Cada uno hace una capa: `0001` identidad y cuentas, `0002` núcleo del CRM (contactos, embudo, actividades, documentos, etiquetas), `0003` cumplimiento y pagos, `0004` seguridad a nivel de fila y almacén de archivos. En conjunto crean 17 tablas, 7 enums (listas cerradas de valores), 14 disparadores, 34 políticas de RLS sobre las tablas y 2 sobre el almacén de archivos, más el cubo `expedientes`. Equivale a `supabase db push` si se usa la interfaz de línea de comandos.
-3. Ejecutar `backend/supabase/seed.sql`: carga los 7 expedientes del ECP, sus 7 oportunidades, representantes, carteras, las 5 transferencias y las 8 casillas de debida diligencia por expediente. Es idempotente.
-4. Dar de alta los usuarios en **Authentication** (panel o `POST /auth/admin/v1/signup` con `user_metadata.role`). El disparador `on_auth_user_created` genera su fila en `public.profiles`; sin perfil no hay rol y el acceso queda vacío.
+1. Crear el proyecto en el panel de Supabase y copiar la URL del proyecto, la `anon key` (también llamada publishable) y la `service_role key`.
+2. Abrir **SQL Editor** y ejecutar los seis archivos de `backend/supabase/migrations/` en orden numerado. Cada uno hace una capa: `0001` personas y cuentas, `0002` conversaciones y mensajería, `0003` cadencias, legajo, comercial y reclamos, `0004` seguridad a nivel de fila y privilegios, `0005` el cubo de archivos, `0006` el glosario de términos. En conjunto crean 26 tablas, 17 enums (listas cerradas de valores), 25 disparadores, 20 funciones, 56 políticas de RLS (54 sobre las tablas y 2 sobre el cubo de archivos) y 9 vistas. Equivale a `supabase db push` si se usa la interfaz de línea de comandos.
+3. Ejecutar `backend/supabase/seed.sql`: carga los 9 clientes del ECP, sus contactos, las 13 conversaciones con los 42 mensajes, las cadencias con sus ejecuciones, el legajo de ocho casillas por cliente, los documentos, los reclamos y el diccionario de términos. Es idempotente, y termina con las 19 comprobaciones de `verificacion.sql`.
+4. Dar de alta los usuarios en **Authentication** (panel o `POST /auth/admin/v1/signup` con `app_metadata.role`; nunca `user_metadata`, porque ese campo lo puede escribir el navegador). El disparador `on_auth_user_created` genera su fila en `public.profiles`; sin perfil no hay rol y el acceso queda vacío. El alta desde el formulario del panel no rellena `app_metadata`, así que la fila nace con el rol por defecto y `seed.sql` deja los cinco correos corporativos con el rol que corresponde.
 5. Rellenar `backend/.env`:
 
 ```
@@ -182,32 +186,30 @@ psql "$SUPABASE_DB_URL" -c '\d public.clients' -c 'select * from public.audit_ev
 
 También se puede consultar desde el panel (Table Editor) o por la API REST que Supabase expone en `<SUPABASE_URL>/rest/v1/clients` con la cabecera `apikey: <anon>`.
 
-Importante: el backend usa la `service_role key`, que esquiva RLS. Las políticas de `0004_security_and_storage.sql` son la segunda traba para cualquier acceso directo con la `anon key`; en el servidor la validación de permisos la hace `requireRole`. Mientras el backend siga leyendo de `store.js`, estas políticas no entran en juego: falta la capa de repositorio.
+Importante: la `service_role key` esquiva la seguridad a nivel de fila, así que el backend solo la
+usa para iniciar sesión y para las tareas de administración. Las lecturas del CRM de mensajería
+(`/api/messaging`, ver `PLAN.md` sección 13) arma un cliente por petición con la `anon key` y el
+token del usuario, de modo que lo que cada agente ve es lo que sus permisos dejan ver. La
+validación de permisos de ruta la hace `requireRole`, y la de filas la base.
 
-### 3.3 Matriz RLS resumida
+### 3.3 Seguridad a nivel de fila
 
-Es lo que hace `0004`, tabla por tabla. "Autenticados" significa rol `authenticated` de Supabase.
+Son 54 políticas sobre las 26 tablas más las dos del cubo de archivos, y están escritas en
+`0004_security_and_privileges.sql`. La matriz tabla por tabla, generada desde la base ya ejecutada,
+está en `backend/supabase/DIAGRAMA.md`. "Autenticados" significa rol `authenticated` de Supabase.
 
-| Tabla | Lectura | Escritura |
-| --- | --- | --- |
-| `profiles` | Autenticados | Solo la `service_role key`; el disparador `on_auth_user_created` la siembra |
-| `clients` | Autenticados sin borrados | Alta: admin, compliance, operaciones, ventas. Edición: admin, compliance o el dueño |
-| `contacts` | Autenticados sin borrados | admin, compliance, operaciones, ventas |
-| `deals` | Autenticados sin borrados | admin, ventas, operaciones |
-| `deal_events` | Autenticados | Solo el disparador `deals_stage_change` (función `security definer`) |
-| `activities` | Autenticados sin borrados | Los cinco roles |
-| `documents` | Autenticados sin borrados | Alta: cuatro roles. Revisión de estado: admin, compliance |
-| `communication_logs` | Autenticados | Alta: admin, ventas, soporte |
-| `tags` | Autenticados | admin, ventas |
-| `client_tags` | Autenticados | admin, ventas, operaciones, compliance |
-| `compliance_items` | Autenticados | Alta y edición: admin, compliance |
-| `screenings` | Autenticados | Solo la `service_role key` |
-| `custodial_wallets` | Autenticados | Alta: admin, operaciones |
-| `transactions` | Autenticados | Alta y edición: admin, operaciones |
-| `ecp_daily_usage` | Autenticados | Solo el disparador `register_daily_usage` |
-| `ecp_parameters` | Autenticados | Edición: admin |
-| `audit_events` | admin, compliance | Alta: autenticados. UPDATE y DELETE revocados y bloqueados por disparador |
-| `storage.objects` (cubo `expedientes`) | admin, compliance, operaciones | Subida: admin, compliance, operaciones, ventas |
+Las cuatro trabas que conviene tener claras, porque son las que respondió Álvaro en la revisión:
+
+- `audit_events` no se puede modificar ni borrar: el disparador lo rechaza, y revocar el permiso es
+  la segunda capa.
+- `deal_events` y las filas ya escritas de `messages` las mantiene el sistema; una edición directa
+  contesta `Esta tabla la mantiene el sistema`.
+- Un mensaje saliente con un término del glosario en severidad de bloqueo no se escribe, y el mismo
+  texto entrante sí, porque hay que conservar lo que dijo el cliente.
+- Una casilla del legajo que pide documento no se puede aprobar sin documento.
+
+El historial de las nueve pruebas negativas corridas en el panel, con el código de error de cada
+una, está en `backend/supabase/pruebas-negativas.sql`.
 
 ---
 
@@ -232,7 +234,8 @@ Las pantallas nunca llaman a los conectores: siempre pasan por el backend, que e
 
 ### 4.2 Autenticación y roles
 
-* `POST /api/auth/login` devuelve `{data:{token,user}}`. Con Supabase usa `signInWithPassword` y toma el rol de `app_metadata.role`; en modo demostración busca el correo en `demoAccounts.js` y verifica `DEMO_PASSWORD`. Si el correo no está en la lista, o la contraseña no coincide, responde 401. No hay tercer camino: sin Supabase y sin `DEMO_MODE` responde 503.
+* `POST /api/auth/login` devuelve `{data:{token,user}}`. Con Supabase usa `signInWithPassword` y el `token` es el JWT que la base reconoce. El rol no sale del token: se lee de la fila `profiles` con `public.current_role_name()`, una vez por petición y con el token del propio usuario, que es lo que hace que `requireRole` y las políticas de RLS opinen lo mismo. Si la base no devuelve un rol activo, el acceso responde 403 con `PROFILE_WITHOUT_ROLE` en lugar de suponer uno. En modo demostración busca el correo en `demoAccounts.js` y verifica `DEMO_PASSWORD`. Si el correo no está en la lista, o la contraseña no coincide, responde 401. No hay tercer camino: sin Supabase y sin `DEMO_MODE` responde 503.
+* Las sesiones que firma el propio CRM (los cinco correos en demostración y los tokens de agente, que empiezan con `v1.`) se validan con `AUTH_SECRET` y siguen validando con Supabase montado. Un JWT de Supabase nunca lleva ese prefijo, así que los dos caminos no se confunden.
 * El frontend guarda la sesión en `localStorage` bajo `alyto.ecp.session` y la restaura al recargar, pero la valida contra `GET /api/auth/me`; ante un 401 la descarta y devuelve al formulario de acceso.
 * Cada petición siguiente lleva `Authorization: Bearer <token>`. En modo demostración el token es `v1.<base64url de la carga>.<firma HMAC SHA-256>` y se verifica con comparación de tiempo constante antes de poblar `req.user`; `requireRole(...)` decide si la ruta procede.
 
@@ -252,10 +255,15 @@ La lista es cerrada y el rol sale de ella, no del texto del correo: `admin@ataca
 
 Todas las respuestas de éxito tienen forma `{data: ...}` y los errores `{error:{code,message}}`.
 
-| Método y ruta | Rols | Propósito |
+| Método y ruta | Roles | Propósito |
 | --- | --- | --- |
 | `POST /api/auth/login` | público | Crear sesión |
 | `GET /api/auth/me` | cualquier rol | Sesión vigente |
+| `GET /api/messaging` | cualquier rol | Qué lecturas hay y con qué usuario se leen |
+| `GET /api/messaging/inbox` | cualquier rol | Bandeja real: la vista `vw_inbox` de la base |
+| `GET /api/messaging/sla` | cualquier rol | Hilos abiertos con sus horas hábiles sin atención |
+| `GET /api/messaging/cadencia` | cualquier rol | El paso pendiente de cada cadencia activa |
+| `GET /api/messaging/reclamos` | cualquier rol | Reclamos con su plazo y su semáforo |
 | `GET /api/meta/stages` | cualquier rol | Las 6 etapas del embudo |
 | `GET /api/clients` | cualquier rol | Expedientes corporativos |
 | `GET /api/clients/:id` | cualquier rol | Detalle 360: wallets, transacciones y deal |
@@ -300,7 +308,10 @@ Para probar un conector aislado: `curl http://localhost:4602/health`.
 * `pipeline-agent`: sondeo cada 45 segundos, audita coherencia entre etapa del deal y estado del checklist.
 * `support-ai-agent`: interfaz CLI, `node agents/support-ai-agent/src/index.js "texto de la objeción"`. Devuelve la objeción emparejada del catálogo con verificación de conformidad de marca antes de responder.
 
-Los dos agentes de sondeo se detienen con `Ctrl+C` y respetan `BACKEND_URL`, `POLL_INTERVAL_MS` y `AGENT_TOKEN` (si `AGENT_TOKEN` trae un valor real se usa ese; con `demo` o vacío se autogenera el token del agente).
+Los dos agentes de sondeo se detienen con `Ctrl+C` y respetan `BACKEND_URL`, `POLL_INTERVAL_MS` y
+`AGENT_TOKEN`. Ese token no se autogenera: hay que firmándolo con `npm run agent-token --
+<agente>` dentro de `backend` y ponerlo en el `.env` del agente. Sin token, o con un token que no
+pasa la firma, el agente no llama a la API.
 
 ### 4.7 Documentos PDF y notificaciones
 
@@ -314,19 +325,49 @@ Los dos agentes de sondeo se detienen con `Ctrl+C` y respetan `BACKEND_URL`, `PO
 
 ### 4.10 Modelo de datos del CRM (Supabase)
 
-Las cuatro migraciones de `backend/supabase/migrations/` describen el CRM en 17 tablas, agrupadas en cuatro capas. Los identificadores internos son `uuid` (clave primaria aleatoria); el número que ve el usuario (`ECP-BOL-5577`) vive en la columna `code`.
+Las seis migraciones de `backend/supabase/migrations/` describen el CRM de mensajería en 26 tablas:
+17 tipos enumerados, 20 funciones, 25 disparadores, 56 políticas de seguridad por fila y 9 vistas.
+Los identificadores internos son `uuid` (clave primaria aleatoria); el número que ve el usuario
+vive en la columna `code`. La matriz completa, generada desde la base ya ejecutada, está en
+`backend/supabase/DIAGRAMA.md`.
 
-**Identidad y cuentas.** `profiles` (el rol real de cada usuario, creado por el disparador `on_auth_user_created` al nacer en Auth), `clients` (la cuenta o expediente: NIT, tipo de persona, estado KYC - *Know Your Customer*, debida diligencia del cliente, salud, volumen y cupo mensual, dueño del expediente) y `ecp_parameters` (una sola fila con los topes que fija ASFI - *Superintendencia de Bancos* de Bolivia - en el ECP - *Entorno Controlado de Pruebas*).
+**Personas.** `profiles` (el rol real de cada usuario, creado por el disparador `on_auth_user_created`
+al nacer en Auth), `clients` (la cuenta, con el identificador visible, el tipo de persona y la etapa
+de ingreso) y `contacts` (las personas detrás de la cuenta, con un único interlocutor principal).
 
-**Núcleo del CRM.** `contacts` (las personas detrás de la cuenta, con un único interlocutor principal), `deals` (la oportunidad en una de las 6 etapas), `deal_events` (historial de cada movimiento de etapa, alimentado por el disparador `deals_stage_change`; es la base de toda la medición), `activities` (llamada, reunión, visita, correo, tarea o nota, con dueño y vencimiento: la jornada de trabajo), `documents` (solo metadatos; el archivo está en el cubo privado `expedientes` de Storage), `communication_logs` (copia textual de lo enviado, para trazabilidad) y `tags` / `client_tags` (segmentación).
+**Conversación, que es el objeto central.** `conversations` (un hilo por cliente y canal, con cola,
+prioridad, asignación y los marcadores de tiempo que alimentan el nivel de servicio), `messages`
+(cada mensaje entrante o saliente, con su canal y su marca de glosario) y `routing_rules` (qué tipo
+de consulta va a qué cola).
 
-**Cumplimiento y pagos.** `compliance_items` (las 8 casillas de debida diligencia por expediente; una casilla que exige documento no puede aprobarse sin archivo adjunto, lo vigila el disparador `compliance_items_need_document`), `screenings` (cotejo contra listas restrictivas), `custodial_wallets`, `transactions` (transferencias internacionales, con los cinco estados canónicos validados por restricción de tabla), `ecp_daily_usage` (contador diario que convierte el tope en algo alertable, mantenido por `register_daily_usage`) y `audit_events` (asientos inmutables: UPDATE y DELETE están revocados y bloqueados por disparador).
+**Automatización comercial.** `templates` (las plantillas auditadas, con su texto literal aprobado),
+`cadence_templates`, `cadence_steps`, `cadence_enrollments` y `cadence_executions`: la secuencia de
+14 días en seis pasos, con el disparador que no deja escribir un paso antes del día del anterior.
 
-**Medición.** Las vistas `vw_funnel_by_stage` (reparto del embudo), `vw_stage_age` (días que lleva una oportunidad en su etapa actual) y `vw_open_activities` (tareas pendientes ordenadas por vencimiento) se calculan al vuelo; no se guardan totales que se desactualizan.
+**Rutas A y C.** `compliance_item_defs` y `compliance_items` (las ocho casillas del legajo; una que
+exige documento no se aprueba sin archivo, lo vigila `require_document_for_approval`), `documents`,
+`screenings`, `client_ecp_profile` (estado del usuario en el ECP, riesgo y topes declarados) y
+`ecp_parameters` (una sola fila con los topes y el horario hábil; el tope por operación es
+Bs 120.000).
 
-Tres decisiones de modelado convienen al producto y no son negociables sin cambiar código: borrado lógico con `deleted_at` en las tablas de trabajo (un expediente nunca desaparece), `public_key` de las carteras sin columna para la clave privada (que no haya donde guardarla es la primera defensa), y `owner_id` obligatorio en las actividades (una tarea sin dueño no es una tarea).
+**Comercial y reclamos.** `deals`, `deal_stages`, `deal_events` (el historial de etapas lo escribe el
+sistema, nunca una inserción directa), `activities`, `tags`, `client_tags` y `claims` (con su plazo,
+su semáforo y la traba de cerrarlos con resolución escrita).
 
-Mientras el backend lea de `store.js`, este modelo no interviene. El puente es la capa de repositorio (`backend/src/data/repository.js`) que falta construir.
+**Gobernanza.** `blocked_terms` (el diccionario del glosario, severidad de bloqueo o advertencia) y
+`audit_events` (asientos inmutables: UPDATE y DELETE están revocados y bloqueados por disparador).
+
+**Medición.** `vw_inbox`, `vw_conversations_sla`, `vw_cadence_pending`, `vw_claims_sla`,
+`vw_messages_flagged`, `vw_compliance_progress`, `vw_funnel_by_stage`, `vw_stage_age` y
+`vw_open_activities` se calculan al vuelo; no se guardan totales que se desactualizan.
+
+Tres decisiones de modelado convienen al producto y no son negociables sin cambiar código: borrado
+lógico con `deleted_at` en las tablas de trabajo (un hilo nunca desaparece), las etiquetas del legajo
+y de las etapas en la base y no repetidas en la interfaz, y `owner_id` obligatorio en las
+actividades (una tarea sin dueño no es una tarea).
+
+Las lecturas de la base ya están construidas (`backend/src/data/repository.js`, sección 13 de
+`PLAN.md`). Las pantallas siguen leyendo de `store.js` hasta la Fase 8.
 
 ---
 

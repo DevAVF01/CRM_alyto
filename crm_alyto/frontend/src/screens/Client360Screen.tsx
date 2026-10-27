@@ -340,7 +340,7 @@ export default function Client360Screen() {
             <section className="card" aria-label="Checklist de debida diligencia">
               <div className="row row--between">
                 <h2 className="card__title" style={{ marginBottom: 0 }}>Checklist de Debida Diligencia ECP</h2>
-                <Badge tone="accent">Resolución ASFI 2024</Badge>
+                <Badge tone="accent">ECP de ASFI</Badge>
               </div>
               {checklist.length === 0 ? (
                 <p className="small muted">El expediente no tiene checklist registrado.</p>

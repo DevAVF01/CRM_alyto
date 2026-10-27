@@ -24,7 +24,7 @@ create table public.clients (
   country text not null default 'Bolivia',
   sector text,
   representative text,
-  regime text not null default 'Resolución ASFI 2024',
+  regime text not null default 'ECP de ASFI',
   kyc_status public.kyc_status not null default 'Pendiente',
   health text not null default 'En evaluacion',
   volume_processed numeric(14, 2) not null default 0,

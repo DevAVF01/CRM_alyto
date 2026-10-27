@@ -70,19 +70,29 @@ export function requestLogger(logger) {
   };
 }
 
+// Codigo por defecto segun el estado, para que un 404 no salga etiquetado como error interno.
+const CODE_BY_STATUS = { 400: 'BAD_REQUEST', 401: 'UNAUTHENTICATED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 422: 'VALIDATION_ERROR', 503: 'SERVICE_UNAVAILABLE' };
+
 export function errorHandler(logger) {
   return (err, req, res, next) => {
     if (res.headersSent) return next(err);
+    const status = err.status || 500;
     logger.error('unhandled_error', {
       message: err.message,
       stack: err.stack,
       path: req.originalUrl,
     });
     captureException(err, { request: { method: req.method, url: req.originalUrl } });
-    return res.status(err.status || 500).json({
+
+    // Un 4xx es un fallo de la peticion: su mensaje no revela nada interno y quien llama necesita
+    // leerlo. Un 5xx puede traer detalle interno (una cadena de conexion, un mensaje de la base),
+    // y ese solo se muestra si el codigo lo marca con expose.
+    const visible = err.expose || status < 500;
+
+    return res.status(status).json({
       error: {
-        code: err.code || 'INTERNAL_ERROR',
-        message: err.expose ? err.message : 'Error interno del servidor',
+        code: err.code || CODE_BY_STATUS[status] || 'INTERNAL_ERROR',
+        message: visible ? err.message : 'Error interno del servidor',
       },
     });
   };

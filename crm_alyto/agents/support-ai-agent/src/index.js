@@ -10,7 +10,7 @@ const CATALOG = [
     id: 'OBJ-02',
     title: 'Respaldo regulatorio ASFI',
     keywords: ['regulacion', 'asfi', 'legal', 'supervision', 'respaldado', 'licencia', 'permiso', 'norma'],
-    legalBasis: 'Régimen ECP, Resolución ASFI 2024',
+    legalBasis: 'Entorno Controlado de Pruebas de ASFI, autorización en proceso',
     response: 'AV Finance S.R.L. opera bajo supervisión de la ASFI en el Entorno Controlado de Pruebas (ECP). La autorización de funcionamiento se encuentra en proceso, y cada operación test queda registrada y auditada conforme a las directrices del ECP.',
   },
   {

@@ -88,6 +88,7 @@ export function createAuth({
   demoAccounts = [],
   demoPassword = process.env.DEMO_PASSWORD,
   sessionTtlSeconds = SESSION_TTL_SECONDS,
+  roleResolver = null,
 } = {}) {
   if (demoMode) {
     assertAuthSecret(authSecret);
@@ -99,7 +100,26 @@ export function createAuth({
     }
   }
 
+  // El unico sitio que dice que rol tiene una persona es la tabla profiles, leida por la
+  // funcion current_role_name(). Sin ese camino, quien entra por Supabase quedaria con un rol
+  // supuesto y los guardamatos de requireRole no significarian nada.
+  if (supabase && typeof roleResolver !== 'function') {
+    throw new Error('Con Supabase configurado hace falta un roleResolver que lea el rol desde la base del CRM.');
+  }
+
   const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+  async function roleFromDatabase(accessToken) {
+    const rol = await roleResolver(accessToken);
+    if (!ROLE_VALUES.includes(rol)) {
+      throw httpError(
+        403,
+        'La cuenta no tiene un perfil activo con rol asignado en la base del CRM. La administracion debe crearlo.',
+        'PROFILE_WITHOUT_ROLE',
+      );
+    }
+    return rol;
+  }
 
   function issueSession(account) {
     return signSession(
@@ -120,12 +140,13 @@ export function createAuth({
     if (supabase) {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw httpError(401, 'Credenciales invalidas');
+      const role = await roleFromDatabase(data.session.access_token);
       return {
         token: data.session.access_token,
         user: {
           id: data.user.id,
           email: data.user.email,
-          role: data.user.app_metadata?.role || ROLES.VENTAS,
+          role,
         },
       };
     }
@@ -144,22 +165,33 @@ export function createAuth({
       const token = header.startsWith('Bearer ') ? header.slice(7) : null;
       if (!token) throw httpError(401, 'Token de autorizacion requerido');
 
+      if (!supabase && !demoMode) {
+        throw httpError(503, 'Sin base de datos configurada y sin modo demostracion activo', 'DATA_LAYER_NOT_CONFIGURED');
+      }
+
+      // Una sesion firmada por el propio CRM (los cinco correos en modo demostracion y los
+      // tokens de agente) se valida con AUTH_SECRET, y sigue siendo valida con Supabase montado:
+      // si no, al pasar a la base real los agentes quedarian fuera del sistema.
+      if (token.startsWith(`${TOKEN_PREFIX}.`)) {
+        const payload = verifySession(token, authSecret);
+        if (!payload) throw httpError(401, 'Sesion invalida o expirada');
+        req.user = payload;
+        return next();
+      }
+
       if (supabase) {
         const { data, error } = await supabase.auth.getUser(token);
         if (error || !data?.user) throw httpError(401, 'Sesion invalida o expirada');
         req.user = {
           id: data.user.id,
           email: data.user.email,
-          role: data.user.app_metadata?.role || ROLES.VENTAS,
+          role: await roleFromDatabase(token),
         };
         return next();
       }
 
-      if (!demoMode) throw httpError(503, 'Sin base de datos configurada y sin modo demostracion activo', 'DATA_LAYER_NOT_CONFIGURED');
-      const payload = verifySession(token, authSecret);
-      if (!payload) throw httpError(401, 'Sesion invalida o expirada');
-      req.user = payload;
-      return next();
+      // Modo demostracion: aca solo valen sesiones propias, un token de otro lado no abre nada.
+      throw httpError(401, 'Sesion invalida o expirada');
     } catch (err) {
       return next(err);
     }

@@ -52,3 +52,21 @@ test('una respuesta sin cuerpo JSON no revienta el servicio', async (t) => {
     (err) => err.status === 502,
   );
 });
+
+// El caso frecuente del ECP: el conector ni siquiera esta levantado, y fetch falla antes de
+// recibir codigo alguno. Decir "error interno" obliga a leer el log para saber que falta.
+test('un conector apagado responde 502 con su nombre y su direccion', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => {
+    throw Object.assign(new TypeError('fetch failed'), { cause: new Error('ECONNREFUSED') });
+  });
+  await assert.rejects(
+    () => stellarService.health(),
+    (err) =>
+      err.status === 502 &&
+      err.code === 'CONNECTOR_UNAVAILABLE' &&
+      err.expose === true &&
+      /stellar-connector no responde en http:\/\/localhost:4601/.test(err.message) &&
+      /MCP_STELLAR_URL/.test(err.message),
+  );
+});
+

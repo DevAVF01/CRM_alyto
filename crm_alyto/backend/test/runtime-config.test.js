@@ -66,7 +66,7 @@ test('el modo demostracion valido arranca y se declara en el estado', () => {
   withEnv({ DEMO_MODE: 'true', AUTH_SECRET: LONG_SECRET, DEMO_PASSWORD: 'clave-ecp-2026' }, () => {
     const status = assertBootConfiguration();
     assert.equal(status.demoMode, true);
-    assert.equal(status.dataLayer, 'memoria');
+    assert.match(status.dataLayer, /memoria/);
     assert.equal(status.authLayer, 'demo-firmado');
     assert.equal(storeAllowed(), true);
   });
@@ -111,6 +111,13 @@ test('requireDataLayer deja pasar en demo y responde 503 fuera de demo', () => {
   });
 });
 
+const CAPA_DE_DATOS_POSIBLES = [
+  'no disponible',
+  'supabase sin SUPABASE_ANON_KEY',
+  'supabase (vistas)',
+  'supabase (vistas) y memoria',
+];
+
 test('salud informa el modo real del backend para que la interfaz no lo adivine', async () => {
   const app = createApp();
   const server = app.listen(0);
@@ -124,13 +131,13 @@ test('salud informa el modo real del backend para que la interfaz no lo adivine'
     );
     assert.equal(enDemo.status, 'ok');
     assert.equal(enDemo.runtime.demoMode, true);
-    assert.equal(enDemo.runtime.dataLayer, 'memoria');
+    assert.match(enDemo.runtime.dataLayer, /memoria/);
     assert.equal(enDemo.runtime.authLayer, 'demo-firmado');
     assert.match(enDemo.regime, /Entorno Controlado de Pruebas/);
 
     const sinDemo = await withEnvAsync({}, async () => (await fetch(`${base}/api/health`)).json());
     assert.equal(sinDemo.runtime.demoMode, false);
-    assert.ok(['no disponible', 'capa de repositorio pendiente', 'supabase'].includes(sinDemo.runtime.dataLayer));
+    assert.ok(CAPA_DE_DATOS_POSIBLES.includes(sinDemo.runtime.dataLayer));
   } finally {
     server.close();
   }

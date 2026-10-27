@@ -164,7 +164,7 @@ export default function ComplianceScreen() {
         <section className="card" aria-label="Límites operativos del ECP">
           <div className="row row--between">
             <h2 className="card__title" style={{ marginBottom: 0 }}>Límites Operativos del ECP</h2>
-            <Badge tone="accent">Resolución ASFI</Badge>
+            <Badge tone="accent">ECP de ASFI</Badge>
           </div>
           {limitRows.map((row) => (
             <div className="dist-row" key={row.label}>
