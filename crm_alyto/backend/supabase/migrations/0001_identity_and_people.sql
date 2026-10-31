@@ -1,10 +1,14 @@
 -- 0001: identidad, personas y parametros compartidos
 --
+-- Modelo del 27/10. Este CRM no persigue ventas: registra lo que un cliente consulta, como se
+-- enruta, como se responde y que quedo asentado. Por eso clients lleva adentro la ficha del ECP
+-- (antes client_ecp_profile) y no lleva etapa de captacion alguna (antes onboarding_stage).
+--
 -- Alcance: solo lo que el CRM posee. Las operaciones de transferencias internacionales,
 -- las carteras y el consumo diario de cupos viven en la base de la app de pagos, que va
 -- aparte por indicacion de Alvaro. Aqui no se copia ninguna de esas tablas.
 --
--- Aplica sobre un proyecto Supabase nuevo (PostgreSQL 15+). Ejecutar en orden 0001 a 0004.
+-- Aplica sobre una base limpia (PostgreSQL 15+). Orden: 0001 a 0004, despues 0005 y 0006.
 
 create extension if not exists pgcrypto;
 create extension if not exists pg_trgm;
@@ -18,13 +22,14 @@ create type public.document_review_status as enum ('Pendiente', 'En revision', '
 -- que usa la interfaz, escrita igual, para que un estado con otra mayuscula no deje de
 -- contar en las vistas.
 create type public.kyc_status as enum ('Pendiente', 'En revision', 'Aprobado', 'Observado', 'Rechazado');
-create type public.onboarding_stage as enum (
-  'Lead capturado',
-  'Validacion KYC',
-  'Vinculacion completada',
-  'Primera operacion',
-  'Recurrencia'
-);
+-- Dos listas que usa la bitacora. Se declaran aqui, junto con las demas, y no en 0004 donde
+-- nace la tabla audit_events, porque los disparadores de 0002 ya escriben esos valores: una
+-- lista cerrada no puede declararse despues de su primer uso.
+create type public.audit_actor_kind as enum ('humano', 'agente', 'sistema');
+create type public.audit_outcome as enum ('exito', 'rechazado', 'error');
+-- Salió public.onboarding_stage. Las cinco etapas de captación eran el embudo de ventas; el
+-- ciclo de un cliente se lee ahora de sus tres rutas en paralelo y de kyc_estado, no de una
+-- columna que lo ubica "en la etapa 2".
 
 -- Funcion compartida: mantiene actualizada la columna updated_at de toda tabla que la use.
 create or replace function public.touch_updated_at()
@@ -128,9 +133,29 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- Cuenta: la persona o empresa atendida. Ficha minima a proposito; todo lo demas se calcula
--- o cuelga de otra tabla. volume_processed, frequency y health ya no existen aqui porque son
--- derivables, y el protocolo de custodia pertenece a la app de pagos.
+-- Reenganche con las cuentas que ya existian. profiles es hija de auth.users y el vinculo se
+-- corta en dos casos: un desarme del esquema public (desarmar.sql) y una migracion a otra
+-- instancia, que se lleva auth.users y deja la tabla de atras. El disparador solo mira inserciones
+-- nuevas, asi que un usuario con sesion valida no tiene quien lo lea y current_user_id() devuelve
+-- vacio: las pantallas salen en blanco sin ningun error. Esta sentencia es el unico punto de entrada
+-- de auth.users a profiles, y por eso no depende de que alguien se acuerde de correrla.
+--
+-- Deja el rol en 'soporte' a proposito, sin leer app_metadata: el alta desde el panel no lo
+-- escribe, y la seccion 0 del sembrado es la que coloca los cinco roles reales. Aqui se copia
+-- display_name del metadata de usuario, que si es publico y no escala privilegios.
+
+insert into public.profiles (id, email, display_name)
+select u.id,
+       coalesce(u.email, ''),
+       coalesce(u.raw_user_meta_data ->> 'display_name', split_part(coalesce(u.email, ''), '@', 1))
+from auth.users u
+where u.email is not null
+on conflict (id) do nothing;
+
+-- Cuenta: la persona o empresa atendida. Aqui vive tambien la ficha del Entorno Controlado de
+-- Pruebas, que antes estaba en client_ecp_profile: una tabla separada que obligaba a cuatro
+-- saltos para leer una sola pantalla. Leer la ficha de un cliente tiene que ser una fila.
+-- Lo que no vive aqui: plata. Solo payments_ref, un identificador de referencia.
 create table public.clients (
   id uuid primary key default gen_random_uuid(),
   account_type public.account_type not null default 'persona_natural',
@@ -143,18 +168,37 @@ create table public.clients (
   company_name text,
   city text,
   sector text,
-  source text,
-  onboarding_stage public.onboarding_stage not null default 'Lead capturado',
+  -- De donde entro el cliente. Es traza de canal, no de captacion comercial: sirve para saber
+  -- si una consulta llego por WhatsApp o por el chat de alyto.io y nada mas.
+  origin text not null default 'manual' check (
+    origin in ('whatsapp_business', 'correo', 'chat_app', 'web_chat', 'linkedin', 'meta',
+               'tiktok', 'derivacion', 'manual')
+  ),
   payments_ref text,
   owner_id uuid references public.profiles (id) on delete set null,
   last_activity_at timestamptz,
+  -- Ficha del ECP. Nadie del equipo mueve estas columnas salvo cumplimiento, y lo sostiene el
+  -- disparador clients_ficha_solo_cumplimiento de 0004, no un permiso de tabla: todos los
+  -- usuarios entran por el mismo rol de Postgres, asi que el privilegio no los distingue.
+  ecp_account text,
+  ecp_status text not null default 'no dado de alta' check (
+    ecp_status in ('no dado de alta', 'activo', 'suspendido', 'baja registrada')
+  ),
+  kyc_estado public.kyc_status not null default 'Pendiente',
+  riesgo text not null default 'por clasificar' check (
+    riesgo in ('por clasificar', 'bajo', 'medio', 'alto')
+  ),
+  tope_operacion_bs numeric(14, 2) check (tope_operacion_bs is null or tope_operacion_bs > 0),
+  cupo_mensual_operaciones integer check (
+    cupo_mensual_operaciones is null or cupo_mensual_operaciones > 0
+  ),
+  ficha_revisada_en timestamptz,
+  ficha_nota text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
   -- Una persona juridica no existe sin sazon social ni NIT. Una natural se identifica con
-  -- cedula, o con NIT si es independiente, y puede estar capturada como lead solo con el
-  -- telefono. El texto 'Pendiente' que usaba el esquema anterior ya no cabe: nullable con
-  -- formato validado en lugar de un centinela en una columna de numeros.
+  -- cedula, o con NIT si es independiente, y puede estar capturada solo con el telefono.
   constraint clients_documento_por_tipo check (
     account_type = 'persona_natural'
     or (legal_name is not null and nit is not null)
@@ -165,13 +209,20 @@ create table public.clients (
   -- Sin ningun dato de contacto la ficha no sirve: no se puede abrir una conversacion.
   constraint clients_canal_contacto check (
     phone_e164 is not null or email is not null or ci is not null
+  ),
+  -- Un tope registrado vacio o en cero no protege de nada: si cumplimiento anotó ficha,
+  -- tiene que anotar con que margen opera ese cliente.
+  constraint clients_ficha_completa check (
+    tope_operacion_bs is null
+    or (riesgo <> 'por clasificar' and ficha_revisada_en is not null)
   )
 );
 
 create index clients_phone_idx on public.clients (phone_e164) where deleted_at is null and phone_e164 is not null;
 create index clients_email_idx on public.clients (lower(email)) where deleted_at is null and email is not null;
 create index clients_nit_idx on public.clients (nit) where deleted_at is null and nit is not null;
-create index clients_stage_idx on public.clients (onboarding_stage) where deleted_at is null;
+create index clients_kyc_idx on public.clients (kyc_estado) where deleted_at is null;
+create index clients_riesgo_idx on public.clients (riesgo) where deleted_at is null;
 create index clients_owner_idx on public.clients (owner_id) where deleted_at is null;
 create index clients_nombre_trgm_idx on public.clients using gin (display_name gin_trgm_ops);
 

@@ -2,19 +2,21 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { useRuntime } from '../runtime/RuntimeProvider';
 import { COMPLIANCE_BADGE, NETWORK_PILL } from '../utils/brandCopy';
+import { solicitarCuenta, mensajeDeError } from '../api/client';
 import { Icon } from '../components/ui';
 
 const DEMO_PROFILES: { email: string; label: string }[] = [
   { email: 'admin@avfinance.bo', label: 'Administrador' },
-  { email: 'compliance@avfinance.bo', label: 'Oficial de Cumplimiento' },
-  { email: 'operaciones@avfinance.bo', label: 'Operaciones' },
-  { email: 'ventas@avfinance.bo', label: 'Fuerza de Ventas B2B' },
-  { email: 'soporte@avfinance.bo', label: 'Atención y Soporte' },
+  // Los otros cuatro perfiles siguen suspendidos en Auth desde el 29/10 (ban de 100 anos), porque
+  // una baja fisica los saca de Auth y arranca asientos inmutables de auditoria por cascada.
+  // Vuelven a esta lista el dia que se vuelvan a abrir los roles.
 ];
 
 export default function LoginScreen() {
   const { login } = useAuth();
+  const runtime = useRuntime();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -23,6 +25,16 @@ export default function LoginScreen() {
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Solicitud de cuenta propia (F-03): el panel secundario del login. Pide correo corporativo,
+  // nombre y contrasena; la cuenta queda creada y pendiente hasta que el administrador la acepte.
+  const [solicitudAbierta, setSolicitudAbierta] = useState(false);
+  const [solNombre, setSolNombre] = useState('');
+  const [solEmail, setSolEmail] = useState('');
+  const [solPassword, setSolPassword] = useState('');
+  const [solError, setSolError] = useState<string | null>(null);
+  const [solMensaje, setSolMensaje] = useState<string | null>(null);
+  const [solCargando, setSolCargando] = useState(false);
 
   const from = (location.state as { from?: string } | null)?.from ?? '/';
 
@@ -41,6 +53,31 @@ export default function LoginScreen() {
       setError('No fue posible iniciar sesión. Verifique sus credenciales.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSolicitud = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!solNombre.trim() || !solEmail.trim() || solPassword.length < 8) {
+      setSolError('Nombre, correo y una contrasena de al menos 8 caracteres.');
+      return;
+    }
+    setSolCargando(true);
+    setSolError(null);
+    try {
+      const { mensaje } = await solicitarCuenta({
+        display_name: solNombre.trim(),
+        email: solEmail.trim(),
+        password: solPassword,
+      });
+      setSolMensaje(mensaje);
+      setSolNombre('');
+      setSolEmail('');
+      setSolPassword('');
+    } catch (err) {
+      setSolError(mensajeDeError(err));
+    } finally {
+      setSolCargando(false);
     }
   };
 
@@ -87,7 +124,7 @@ export default function LoginScreen() {
                 <Icon name={showPassword ? 'eyeOff' : 'eye'} size={17} />
               </button>
             </div>
-            <span className="field__hint">La contraseña la asigna la administración</span>
+            <span className="field__hint">Su contraseña es la de su cuenta del CRM</span>
           </div>
 
           <label className="checkbox">
@@ -107,7 +144,7 @@ export default function LoginScreen() {
         </form>
 
         <div className="login__profiles">
-          <p className="login__profiles-title">Perfiles de demostración del ECP</p>
+          <p className="login__profiles-title">Accesos del entorno de pruebas</p>
           <div className="login__profiles-list">
             {DEMO_PROFILES.map((profile) => (
               <button
@@ -124,13 +161,64 @@ export default function LoginScreen() {
             ))}
           </div>
           <p className="login__profiles-hint">
-            Estos correos solo existen en el almacén de demostración. La contraseña es el valor de DEMO_PASSWORD en el
-            archivo .env del backend y ningún otro correo puede ingresar.
+            {runtime.demo
+              ? 'El backend esta en modo demostracion: estos correos viven en el almacen en memoria y la contrasena es el valor de DEMO_PASSWORD del archivo .env del backend. Ningun otro correo ingresa.'
+              : 'Estas cuentas estan registradas en Supabase, la base del CRM. La contrasena es la que el personal recibe al habilitar su cuenta. Los demas roles quedaron suspendidos el 29/10 y vuelven con el alta por la pantalla Personal.'}
           </p>
         </div>
 
+        <div className="login__solicitud">
+          {solicitudAbierta ? (
+            <form onSubmit={handleSolicitud} noValidate>
+              <p className="login__profiles-title">Solicitar cuenta del personal</p>
+              {solMensaje ? (
+                <p className="small" style={{ color: 'var(--color-success)' }}>{solMensaje}</p>
+              ) : (
+                <>
+                  <div className="field">
+                    <label htmlFor="sol-nombre">Nombre visible</label>
+                    <input id="sol-nombre" className="input" type="text" value={solNombre}
+                      onChange={(e) => setSolNombre(e.target.value)}
+                      placeholder="Como quiere que lo vean en el CRM" />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="sol-email">Correo corporativo</label>
+                    <input id="sol-email" className="input" type="email" value={solEmail}
+                      onChange={(e) => setSolEmail(e.target.value)}
+                      placeholder="nombre@avfinance.bo" autoComplete="email" />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="sol-password">Su contraseña</label>
+                    <input id="sol-password" className="input" type="password" value={solPassword}
+                      onChange={(e) => setSolPassword(e.target.value)}
+                      placeholder="Minimo 8 caracteres" autoComplete="new-password" />
+                  </div>
+                  {solError ? <p className="small" style={{ color: 'var(--color-danger)' }}>{solError}</p> : null}
+                  <button className="btn btn--navy btn--block" type="submit" disabled={solCargando}>
+                    {solCargando ? 'Enviando la solicitud...' : 'Enviar solicitud'}
+                  </button>
+                  <p className="login__profiles-hint">
+                    La cuenta queda pendiente hasta que el administrador la acepte con un rol. Hasta entonces no
+                    puede entrar con ella.
+                  </p>
+                </>
+              )}
+              <button type="button" className="btn btn--ghost btn--block btn--sm"
+                onClick={() => { setSolicitudAbierta(false); setSolError(null); }}>
+                Volver a iniciar sesión
+              </button>
+            </form>
+          ) : (
+            <button type="button" className="btn btn--ghost btn--block"
+              onClick={() => setSolicitudAbierta(true)}>
+              <Icon name="plus" size={14} /> Solicitar una cuenta del personal
+            </button>
+          )}
+        </div>
+
         <p className="login__footer">
-          Las cuentas de Alyto CRM las crea la administración con el rol que corresponde a cada persona.
+          Las cuentas del personal se solicitan con el correo corporativo y el administrador las acepta con el rol
+          que corresponde a cada persona.
           <br />
           Al continuar usted acepta los Términos de Servicio de AV Finance S.R.L.
           <br />

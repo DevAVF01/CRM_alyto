@@ -47,14 +47,14 @@ for (const [termino, detalle] of vetados) {
     const result = await runWith({ texto: `Ofrecemos ${termino} a empresas importadoras` });
     assert.equal(result.nextCalled, false);
     assert.equal(result.status, 400);
-    assert.match(result.payload.detail, detalle);
+    assert.match(result.payload.error.message, detalle);
   });
 }
 
 test('rechaza el guion largo en textos de interfaz', async () => {
   const result = await runWith({ titulo: 'Operación validada — Stellar Testnet' });
   assert.equal(result.status, 400);
-  assert.match(result.payload.detail, /gui[oó]n largo/i);
+  assert.match(result.payload.error.message, /gui[oó]n largo/i);
 });
 
 // El patron global con .test() avanza lastIndex y se salta la siguiente peticion: dos intentos

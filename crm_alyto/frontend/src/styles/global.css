@@ -1449,3 +1449,233 @@ button {
 .row--between {
   justify-content: space-between;
 }
+
+/* Avisos del CRM (cargando / vacio / rechazo).
+   Las tres variantes son el reemplazo de los datos de relleno: un rechazo se ve como rechazo,
+   con el texto que devolvio la base, no como una pantalla con ceros. */
+
+.aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+}
+
+.aviso__icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.aviso__texto {
+  flex: 1;
+  font-size: 13px;
+}
+
+.aviso--cargando {
+  border-color: var(--color-stroke);
+  color: var(--color-muted);
+}
+
+.aviso--vacio {
+  border-color: #b8e5ca;
+  background: var(--color-success-bg);
+  color: #0e8345;
+}
+
+.aviso--rechazo {
+  border-color: #fca5a5;
+  background: var(--color-danger-bg);
+  color: #c5221f;
+}
+
+/* Filtros de lista: campos compactos en una linea que se quebra en pantallas chicas. */
+
+.filtros {
+  align-items: flex-end;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+}
+
+.field--inline {
+  display: grid;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.field__label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.filtros .input,
+.field--inline .input {
+  height: 34px;
+  font-size: 13px;
+}
+
+.contador {
+  margin-left: auto;
+  text-align: right;
+}
+
+/* Enlace que no parece boton: abre un hilo desde la bandeja de salida, las banderas o las senales. */
+
+.enlace {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.enlace:hover {
+  color: var(--color-surface);
+}
+
+/* Pestaña con contador: el numero es cuanto tiene la vista detras, no cuanto muestra la pantalla. */
+
+.tab__numero {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tab--active .tab__numero {
+  background: var(--color-accent);
+  color: var(--color-primary);
+}
+
+/* Hilo de conversacion de la bandeja. */
+
+.hilo {
+  display: grid;
+  gap: 12px;
+}
+
+.hilo__head {
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.hilo__msg {
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+.hilo__msg--entrante {
+  border-left: 3px solid var(--color-surface);
+}
+
+.hilo__msg--saliente {
+  border-left: 3px solid var(--color-accent);
+  background: #fffdf2;
+}
+
+.hilo__meta {
+  font-size: 11.5px;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hilo__texto {
+  font-size: 13.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.composer__campo {
+  flex: 1;
+  height: auto;
+  min-height: 72px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+/* Registro: el antes/despues textual y la identidad con la que se abrio. */
+
+textarea.input {
+  height: auto;
+  min-height: 60px;
+  padding: 10px 12px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.registro__identidad {
+  padding: 10px 14px;
+  min-width: 220px;
+}
+
+.registro__cambio {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.panel-card {
+  display: flex;
+  min-height: 210px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid var(--color-border, #dbe3e8);
+  border-left: 5px solid var(--panel-tone);
+  border-radius: 12px;
+  background: #fff;
+  color: inherit;
+  text-decoration: none;
+  box-shadow: 0 3px 12px rgba(20, 40, 55, .05);
+}
+
+.panel-card:hover { box-shadow: 0 8px 22px rgba(20, 40, 55, .12); transform: translateY(-1px); }
+.panel-card--verde { --panel-tone: #27835b; }
+.panel-card--ambar { --panel-tone: #c17b13; }
+.panel-card--rojo { --panel-tone: #bd3f3f; }
+.panel-card__tone { display: flex; align-items: center; gap: 7px; color: var(--panel-tone); font-size: .78rem; font-weight: 700; text-transform: uppercase; }
+.panel-card__tone i { width: 9px; height: 9px; border-radius: 50%; background: var(--panel-tone); }
+.panel-card__number { color: var(--panel-tone); font-size: 2.4rem; font-weight: 750; line-height: 1; }
+.panel-card__detail { color: var(--color-muted, #65727b); font-size: .9rem; }
+.panel-card__link { margin-top: auto; color: var(--color-primary, #174b63); font-size: .85rem; font-weight: 700; }

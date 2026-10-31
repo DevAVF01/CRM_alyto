@@ -79,9 +79,13 @@ export async function brandLinterMiddleware(req, res, next) {
 
     for (const rule of await activeRules()) {
       if (lowered.includes(rule.term.toLowerCase())) {
+        // La forma de los errores es el contrato del proyecto: {error:{code,message}}. La
+        // pantalla traduce error.message; el texto plano de antes dejaba el aviso en blanco.
         return res.status(400).json({
-          error: 'Infracción de directrices institucionales de marca y ECP ASFI',
-          detail: rule.error,
+          error: {
+            code: 'BRAND_VIOLATION',
+            message: rule.error,
+          },
         });
       }
     }
@@ -89,8 +93,10 @@ export async function brandLinterMiddleware(req, res, next) {
     for (const rule of INTERFACE_PATTERNS) {
       if (rule.regex.test(stringified)) {
         return res.status(400).json({
-          error: 'Infracción de directrices institucionales de marca y ECP ASFI',
-          detail: rule.error,
+          error: {
+            code: 'BRAND_VIOLATION',
+            message: rule.error,
+          },
         });
       }
     }

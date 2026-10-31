@@ -48,38 +48,48 @@ costumbre de etiquetar el origen de todo dato que venga de afuera.
 ### Acceso, seguridad y cuentas
 
 **F-01 Entrar y salir.** Correo y contraseña, sesión que caduca a las 12 horas, roles visibles en la
-interfaz. Estado: en uso en modo demostración. Falta la corrida con Supabase Auth. Criterio: los
+interfaz. Estado: en uso sobre Supabase Auth, con `DEMO_MODE=false`. Verificado en vivo el 30/10: los
+cinco perfiles entran con su cuenta real y el rol sale de la fila `profiles`. Criterio: los
 cinco perfiles entran, un correo que no está en la lista responde 401, y sin credenciales el
 servidor no arranca.
 
 **F-02 Roles y permisos.** Cinco roles, cada uno con su cola. La seguridad a nivel de fila está
-aplicada y verificada en la base. Estado: escrito sin correr. El defecto que dejaba a todos como
+aplicada y verificada en la base. Estado: en uso sobre la base real, verificado en vivo el 30/10 con
+las cinco cuentas: las diecinueve lecturas responden con el rol de cada persona, y `registro`,
+`glosario` y `parametros` contestan 403 fuera de administración y cumplimiento. El defecto que dejaba a todos como
 ventas está corregido: el backend lee el rol de la fila `profiles` con `public.current_role_name()`
 en cada petición y con el token del propio usuario, así que el guarda de ruta y las políticas opinan
 igual. Si la base no devuelve un rol activo responde 403 en lugar de suponer uno. Las sesiones que
 firma el CRM, que son las de los agentes, siguen valiendo con la base montada; sin ese arreglo, el
-día del cambio compliance-agent y pipeline-agent se quedaban fuera. Falta la corrida en vivo con
-Supabase Auth.
+día del cambio compliance-agent y pipeline-agent se quedaban fuera.
 
-**F-03 Administración de cuentas.** Alta, cambio de rol y baja de personal. No hay autorregistro en
-la pantalla de acceso, así que la carga la hace la administración. Estado: por construir. Criterio:
-el alta deja al usuario con el rol correcto en un solo paso y queda anotada en la auditoría.
+**F-03 Cuentas del personal con solicitud y aceptación.** La persona registra su correo corporativo,
+su nombre y su contraseña en la pantalla de entrada (`POST /api/auth/solicitud`); la cuenta nace
+pendiente (`is_active=false`, sin acceso) y el administrador la acepta desde la pantalla Personal
+(`/personal`, solo admin): rol elegido + activa + desban en Auth, o la deja suspendida (ban de 100
+años), con asientos `solicitud_cuenta` / `cuenta_aceptada` / `cuenta_suspendida` en el registro.
+Nadie cambia su propia cuenta (403 `SELF_CHANGE_FORBIDDEN`). Verificada en vivo el 30/10 con
+`scripts/prueba-f03-personal.mjs` (16 pruebas) y migración `0010_personal_grants.sql`. Criterio
+cumplido: el alta y la decisión quedan anotadas en la auditoría y el estado de cada persona se lee
+de la base.
 
 ### Mensajería, que es el producto
 
-**F-04 Bandeja unificada.** Todas las conversaciones abiertas en una lista con filtros por canal,
-rol, cliente y estado, ordenadas por antigüedad del último mensaje. Estado: escrito sin correr. La
-lectura existe sobre la vista `vw_inbox` (13 filas de prueba) en `GET /api/messaging/inbox`; no hay
-pantalla. Esta es la funcionalidad principal del CRM.
+**F-04 Bandeja unificada.** Lista de conversaciones con filtros por canal, rol, cliente y estado,
+con pestañas de SLA, señales y salida. Estado: en uso sobre el puente `/api/crm/bandeja`, con las
+lecturas verificadas en vivo el 30/10 para los cinco roles. Falta el recorrido visual pantalla por
+pantalla con cada rol.
 
-**F-05 Hilo de una conversación.** Ver los mensajes entrantes y salientes de un cliente en orden
-cronológico, con su estado de entrega. Estado: por construir. Está modelado en `conversations` y
-`messages`, no hay endpoint.
+**F-05 Hilo de una conversación.** Mensajes entrantes y salientes en orden cronológico, con estado
+de entrega y lectura por hilo. Estado: implementado en pantalla y en `GET /api/crm/hilos/:id`; falta
+prueba automatizada de autorización y respuesta contra Supabase.
 
 **F-06 Responder.** Composer con plantillas disponibles y bloqueo de términos antes de enviar.
-Estado: parcial. `POST /communications/send` renderiza, audita y envía, pero sobre el almacén de
-demostración y sin escribir en `messages`. Criterio: la respuesta queda en la base, audita y no
-sale si incumple el glosario.
+Estado: parcial, y la parte que falta es el canal. Verificado en vivo el 30/10: la respuesta por
+`POST /api/crm/hilos/:id/mensajes` escribe la fila en `messages` con estado `en_cola`, audita el
+envío y rebota con 400 cuando el texto incumple el glosario. No sale a ninguna bandeja real porque
+`F-25` y `F-26` no existen todavía. Criterio: la respuesta queda en la base, audita y no sale si
+incumple el glosario (cumplido); se entrega cuando un canal real la marca como entregada.
 
 **F-07 Interfaz de canales.** Un solo contrato por el que sale cualquier mensaje, sea correo,
 WhatsApp, chat o redes, con su estado de entrega. Estado: por construir. Hoy solo existe el tipo de
@@ -90,9 +100,8 @@ de viajes ni la bandeja.
 ### Nivel de servicio y cadencia
 
 **F-08 Nivel de servicio de 2 horas.** Alerta cuando un mensaje lleva dos horas sin atención dentro
-del horario laboral. Estado: escrito sin correr. La vista `vw_conversations_sla` da 7 filas y su
-lectura está hecha; falta la pantalla y el semáforo. El horario vive en la tabla de parámetros, no
-quemado en el código.
+del horario laboral. Estado: implementado en la Bandeja y el Panel mediante `vw_conversations_sla`;
+falta una prueba de integración que confirme el cálculo con horarios reales.
 
 **F-09 Cadencia de 14 días.** Los seis pasos con sus tres textos preaprobados, fecha del próximo
 contacto y cierre de ciclo a "En pausa" o "No contactado". Estado: parcial. Modelado y con vista
@@ -105,8 +114,9 @@ pantalla aún toma algunas listas del fichero de datos ficticios.
 
 ### Cumplimiento, reclamos y auditoría
 
-**F-11 Filtro de términos de marca.** Estado: escrito sin correr. La contradicción está resuelta en
-el código: el guarda de texto lee el diccionario de la tabla `blocked_terms` (con caché de cinco
+**F-11 Filtro de términos de marca.** Estado: en uso sobre la base real, verificado en vivo el 30/10
+(el envío de 'remesas' responde 400 con la corrección del glosario, por `POST /communications/send` y
+por el composer del hilo). La contradicción está resuelta en el código: el guarda de texto lee el diccionario de la tabla `blocked_terms` (con caché de cinco
 minutos) y solo usa su lista interna cuando no hay base conectada, que es el caso del modo
 demostración y de las pruebas. Del diccionario de la base solo bloquea la severidad `bloqueo`; la
 `advertencia` pasa y se ve en `vw_messages_flagged`, que es la misma regla que aplica el disparador
@@ -120,8 +130,8 @@ B2B, Reclamos. Estado: parcial. El enum y la lógica del agente existen; el enru
 en la bandeja porque la bandeja no tiene pantalla.
 
 **F-13 Reclamos del consumidor financiero.** Registro por categoría, plazo de respuesta y semáforo.
-Estado: escrito sin correr. Vista `vw_claims_sla` con 3 filas y su lectura hecha; sin pantalla. El
-plazo legal sigue sin dato confirmado y el campo `due_at` queda vacío a propósito: no se inventa.
+Estado: pantalla y endpoints implementados sobre `vw_claims_sla`; el plazo legal sigue sin dato
+confirmado y `due_at` queda vacío a propósito.
 
 **F-14 Cumplimiento y debida diligencia.** Checklist, matriz de riesgo y directrices. Estado: en uso
 sobre el almacén de demostración. Criterio de salida: leer las mismas cifras de las tablas reales.
@@ -136,13 +146,19 @@ verificado en la base. Falta la pantalla.
 etiqueta de origen. Estado: en uso. Falta reorientarla: hoy muestra wallets y transacciones como si
 fueran del CRM, y desde la separación de base esos datos llegan por interfaz.
 
-**F-17 Rutas de vinculación en paralelo.** A documentación, B comercial, C riesgo y cupos, las tres a
-la vez sobre un mismo cliente. Estado: por construir en pantalla; el modelo está en la base. El
-embudo de seis etapas pasa a vivir dentro de la ruta B.
+**F-17 Rutas de vinculación en paralelo.** A documentación, B comercial, C riesgo y cupos, las tres
+a la vez sobre un mismo cliente. Estado: pantalla de Rutas y tablero implementados; falta probar
+concurrencia y cambios de estado con datos reales.
 
-**F-18 Legajo de documentos.** Subida, revisión y trazabilidad de los documentos del expediente.
-Estado: por construir. El cubo de almacenamiento existe, creado desde el panel; no hay interfaz de
-carga ni de descarga.
+**F-18 Legajo de documentos.** Subida, descarga y trazabilidad de los documentos del expediente
+sobre el cubo `expedientes` del panel: formulario de carga en la Ficha (casilla + archivo +
+vencimiento opcional, hasta 10 MB, mime limitado a pdf/png/jpeg/doc/docx), validacion del requisito
+contra la plantilla de casillas de la cuenta, checksum sha256, lectura con token del usuario por
+las politicas de Storage, boton Abrir por documento (admin/compliance/operaciones) y asiento
+`documento_subido` en el registro por cada subida. Verificado en vivo el 30/10 con
+`scripts/prueba-f18-documentos.mjs` (9 pruebas verde: subida, checksum, round-trip, ficha, asiento
+y los cuatro rechazos). La revision del estado (Pendiente/Observado/Aprobado/Rechazado) sigue el
+camino de cumplir con la pantalla de Legajo.
 
 ### Documentos y notificaciones
 
@@ -174,11 +190,9 @@ personal, con sus cuentas propias.
 
 ### Motor de viajes y salidas
 
-**F-24 Motor de viajes.** El proceso que despierta, mira qué señal ocurrió y qué paso venció, y
-produce el mensaje o la tarea que corresponde. Estado: por construir. En el backend no hay
-planificador alguno. El molde existe afuera: `agents/pipeline-agent/src/index.js:72` es un bucle que
-despierta cada intervalo y llama a la API. La decisión pendiente es si el motor vive en ese agente o
-dentro del backend. Criterio: correr dos veces el mismo día no duplica un mensaje.
+**F-24 Motor de viajes.** El proceso despierta, consume señales y pasos vencidos, y produce mensajes
+o tareas. Estado: implementado dentro del backend, con corrida programada y manual, idempotencia y
+registro de auditoría; verificación viva registrada en `crm_plan.md`.
 
 **F-25 Salir por correo.** Estado: por construir, y hoy imposible. `backend/package.json` no tiene
 SMTP ni ningún servicio de correo. Criterio: un mensaje marcado para correo llega a una bandeja real
@@ -216,9 +230,11 @@ el agente. Criterio: cambiar la regla en la base cambia a quién le cae la sigui
 **F-33 Buscador.** Buscar por cliente, por texto de mensaje, por documento y por reclamo. Estado:
 por construir. Criterio: desde cualquier pantalla, un resultado por cada cosa que se escriba.
 
-**F-34 Métricas operativas.** Estado: parcialmente en uso. Existen las vistas `vw_funnel_by_stage`,
-`vw_stage_age`, `vw_compliance_progress` y `vw_messages_flagged`, y ninguna pantalla las lee.
-Criterio: cuatro números en el panel y que al hacer clic lleven a las filas que los forman.
+**F-34 Métricas operativas.** Panel de administración con cuatro semáforos alimentados por las
+vistas vivas de SLA, legajo, mensajes marcados y reclamos. Cada indicador abre la pantalla de los
+casos correspondientes; la carga fallida se muestra como error, no como cero. Los umbrales viven en
+clasificadores probados por unidad en `backend/test/panel.test.js`. El plazo legal de reclamos sigue
+sin estar configurado, por lo que los reclamos abiertos sin plazo se muestran en ámbar.
 
 **F-35 Vencimiento de documentos del legajo.** Estado: por construir. `documents` tiene la fila y el
 estado; no hay revisión periódica ni aviso antes de vencer. Criterio: un documento por vencer
@@ -289,8 +305,9 @@ correo de quien lo construye cuenta como probado.
 | 7. Canales reales y plataforma | Correo, WhatsApp y cuentas administrables, y una dirección donde el personal entre | F-03, F-20, F-25, F-26, F-27, F-23 |
 
 El orden no es decorativo. F-04 necesita la base real, F-06 necesita F-05, y F-24 sin F-05 no tiene
-dónde escribir. El bloque 1 está empezado y es el que cierra antes: el puente a las cuatro vistas ya
-está escrito y solo falta correrlo contra Supabase.
+dónde escribir. **El bloque 1 quedó cerrado el 30/10**: el puente lee la base de Supabase con el
+token del usuario, el rol sale de `profiles` y el diccionario de términos se lee de `blocked_terms`,
+todo verificado en vivo con las cinco cuentas.
 
 **Ningún bloque espera la interfaz con la aplicación de pagos.** `F-22` quedó aplazada en el
 capítulo 2, así que no forma parte de la secuencia.

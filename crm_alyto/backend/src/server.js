@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { createApp } from './app.js';
 import { assertBootConfiguration } from './config/runtime.js';
+import { iniciarMotor } from './motor/planificador.js';
 
 const port = Number(process.env.PORT || 4000);
 
@@ -26,6 +27,10 @@ if (runtime.demoMode) {
 const server = app.listen(port, () => {
   app.locals.logger.info(`crm_alyto backend listo en puerto ${port} | ECP ASFI | Stellar Testnet`);
 });
+
+// El motor de viajes corre dentro del propio proceso del servidor: un ciclo cada minuto y
+// medio. Sin base configurada queda apagado y lo dice en el log, no se finge que corre.
+iniciarMotor(app.locals.logger);
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {

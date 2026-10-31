@@ -1,11 +1,14 @@
--- 0004: seguridad a nivel de fila, privilegios y vistas
+-- 0004: seguridad a nivel de fila, privilegios y registro
 --
--- Requiere 0001, 0002 y 0003.
+-- Requiere 0001, 0002 y 0003. Modelo del 27/10.
 --
 -- Las politicas de Row Level Security (seguridad a nivel de fila) solo tienen efecto sobre
 -- conexiones que viajan con la identidad del usuario. Cuando el backend escriba con la llave
 -- de servicio, estas reglas se saltan: por eso la capa de repositorio debe construir un
 -- cliente por peticion con el JWT del usuario, no uno global con la llave maestra.
+--
+-- Aqui nace tambien el registro (audit_events) y la traba de la ficha, que no puede ser una
+-- politica: todos los usuarios del CRM son el mismo rol de Postgres.
 
 -- Funcion de apoyo: el rol del usuario que esta consultando.
 create or replace function public.current_role_name()
@@ -44,22 +47,21 @@ alter table public.templates enable row level security;
 alter table public.routing_rules enable row level security;
 alter table public.conversations enable row level security;
 alter table public.messages enable row level security;
-alter table public.cadence_templates enable row level security;
-alter table public.cadence_steps enable row level security;
-alter table public.cadence_enrollments enable row level security;
-alter table public.cadence_executions enable row level security;
-alter table public.compliance_item_defs enable row level security;
-alter table public.compliance_items enable row level security;
+alter table public.signals enable row level security;
+alter table public.journeys enable row level security;
+alter table public.journey_steps enable row level security;
+alter table public.journey_enrollments enable row level security;
+alter table public.journey_runs enable row level security;
+alter table public.document_requirements enable row level security;
+alter table public.document_reviews enable row level security;
 alter table public.documents enable row level security;
 alter table public.screenings enable row level security;
-alter table public.deal_stages enable row level security;
-alter table public.deals enable row level security;
-alter table public.deal_events enable row level security;
+alter table public.routes enable row level security;
+alter table public.route_events enable row level security;
 alter table public.activities enable row level security;
 alter table public.tags enable row level security;
 alter table public.client_tags enable row level security;
 alter table public.claims enable row level security;
-alter table public.client_ecp_profile enable row level security;
 
 -- ---------------------------------------------------------------------------
 -- Identidad y parametros
@@ -111,6 +113,48 @@ create policy clients_update on public.clients
     public.current_role_name() in ('admin', 'compliance', 'operaciones', 'soporte')
     or owner_id = public.current_user_id()
   );
+
+-- La politica de arriba manda sobre filas, no sobre columnas, y los cinco roles del CRM son
+-- el mismo usuario de Postgres ('authenticated'): un GRANT de columna no distinguiria al
+-- agente de Cumplimiento del de Ventas. Por eso la ficha se cierra con un disparador.
+create or replace function public.clients_ficha_solo_cumplimiento()
+returns trigger
+language plpgsql
+as $$
+declare
+  rol public.user_role;
+begin
+  -- Sin identidad de usuario no escribe una persona: es la llave de servicio, el editor SQL
+  -- del panel o un disparador del sistema.
+  if public.current_user_id() is null
+     or coalesce(current_setting('crm.system_write', true), '') = 'on' then
+    return new;
+  end if;
+
+  if new.ecp_account is not distinct from old.ecp_account
+     and new.ecp_status is not distinct from old.ecp_status
+     and new.kyc_estado is not distinct from old.kyc_estado
+     and new.riesgo is not distinct from old.riesgo
+     and new.tope_operacion_bs is not distinct from old.tope_operacion_bs
+     and new.cupo_mensual_operaciones is not distinct from old.cupo_mensual_operaciones
+     and new.ficha_revisada_en is not distinct from old.ficha_revisada_en
+     and new.ficha_nota is not distinct from old.ficha_nota then
+    return new;
+  end if;
+
+  rol := public.current_role_name();
+  if rol is null or rol not in ('admin', 'compliance') then
+    raise exception 'La ficha del Entorno Controlado de Pruebas la mueve solo Cumplimiento'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger clients_ficha_solo_cumplimiento
+  before update on public.clients
+  for each row execute function public.clients_ficha_solo_cumplimiento();
 
 create policy contacts_read on public.contacts
   for select to authenticated using (deleted_at is null);
@@ -192,44 +236,61 @@ create policy messages_insert on public.messages
   );
 
 -- ---------------------------------------------------------------------------
--- Cadencias
+-- Senales: el registro de lo que paso
 -- ---------------------------------------------------------------------------
 
-create policy cadence_templates_read on public.cadence_templates
+-- El motor produce la mayoria con la llave de servicio, pero un agente tambien abre una a
+-- mano desde la Ficha 360 ("este cliente no responde hace dos dias"). Consumirla o
+-- descartarla es trabajo del equipo.
+create policy signals_read on public.signals
+  for select to authenticated using (true);
+
+create policy signals_write on public.signals
+  for all to authenticated using (
+    public.current_role_name() in ('admin', 'compliance', 'operaciones', 'ventas', 'soporte')
+  ) with check (
+    public.current_role_name() in ('admin', 'compliance', 'operaciones', 'ventas', 'soporte')
+  );
+
+-- ---------------------------------------------------------------------------
+-- Viajes: secuencias automaticas
+-- ---------------------------------------------------------------------------
+
+create policy journeys_read on public.journeys
   for select to authenticated using (deleted_at is null);
 
-create policy cadence_templates_write on public.cadence_templates
+create policy journeys_write on public.journeys
   for all to authenticated using (
     public.current_role_name() in ('admin', 'ventas')
   ) with check (
     public.current_role_name() in ('admin', 'ventas')
   );
 
-create policy cadence_steps_read on public.cadence_steps
+create policy journey_steps_read on public.journey_steps
   for select to authenticated using (true);
 
-create policy cadence_steps_write on public.cadence_steps
+create policy journey_steps_write on public.journey_steps
   for all to authenticated using (
     public.current_role_name() in ('admin', 'ventas')
   ) with check (
     public.current_role_name() in ('admin', 'ventas')
   );
 
-create policy cadence_enrollments_read on public.cadence_enrollments
+create policy journey_enrollments_read on public.journey_enrollments
   for select to authenticated using (true);
 
-create policy cadence_enrollments_write on public.cadence_enrollments
+create policy journey_enrollments_write on public.journey_enrollments
   for all to authenticated using (
     public.current_role_name() in ('admin', 'ventas', 'soporte')
   ) with check (
     public.current_role_name() in ('admin', 'ventas', 'soporte')
   );
 
-create policy cadence_executions_read on public.cadence_executions
+create policy journey_runs_read on public.journey_runs
   for select to authenticated using (true);
 
--- Las ejecuciones las programa y las cierra el motor de cadencias, no un agente.
-create policy cadence_executions_write on public.cadence_executions
+-- Las ejecuciones las programa y las cierra el motor de viajes, no un agente.
+create policy journey_runs_write on public.journey_runs
   for all to authenticated using (
     public.current_role_name() = 'admin'
   ) with check (
@@ -240,28 +301,28 @@ create policy cadence_executions_write on public.cadence_executions
 -- Ruta A: legajo y documentacion
 -- ---------------------------------------------------------------------------
 
-create policy compliance_defs_read on public.compliance_item_defs
+create policy document_requirements_read on public.document_requirements
   for select to authenticated using (is_active);
 
-create policy compliance_defs_write on public.compliance_item_defs
+create policy document_requirements_write on public.document_requirements
   for all to authenticated using (
     public.current_role_name() in ('admin', 'compliance')
   ) with check (
     public.current_role_name() in ('admin', 'compliance')
   );
 
-create policy compliance_read on public.compliance_items
+create policy document_reviews_read on public.document_reviews
   for select to authenticated using (true);
 
--- Al abrir una cuenta se crea la plantilla completa de casillas: lo hace un disparador
--- security definer, pero ventas y soporte tambien necesitan crearlas por la interfaz.
-create policy compliance_insert on public.compliance_items
+-- Al abrir una cuenta se crea la plantilla completa de requisitos: lo hace un disparador
+-- security definer, pero ventas y soporte tambien necesitan crearlos por la interfaz.
+create policy document_reviews_insert on public.document_reviews
   for insert to authenticated with check (
     public.current_role_name() in ('admin', 'compliance', 'operaciones', 'ventas', 'soporte')
   );
 
--- Cambiar el estado de una casilla es trabajo de cumplimiento.
-create policy compliance_write on public.compliance_items
+-- Cambiar el estado de un requisito es trabajo de cumplimiento.
+create policy document_reviews_write on public.document_reviews
   for update to authenticated using (
     public.current_role_name() in ('admin', 'compliance')
   ) with check (
@@ -293,26 +354,36 @@ create policy screenings_write on public.screenings
   );
 
 -- ---------------------------------------------------------------------------
--- Ruta B: comercial
+-- Las tres rutas en paralelo
 -- ---------------------------------------------------------------------------
 
-create policy deal_stages_read on public.deal_stages
-  for select to authenticated using (true);
-
-create policy deals_read on public.deals
+create policy routes_read on public.routes
   for select to authenticated using (deleted_at is null);
 
-create policy deals_write on public.deals
-  for all to authenticated using (
-    public.current_role_name() in ('admin', 'ventas', 'operaciones')
-  ) with check (
-    public.current_role_name() in ('admin', 'ventas', 'operaciones')
+create policy routes_insert on public.routes
+  for insert to authenticated with check (
+    public.current_role_name() in ('admin', 'compliance', 'operaciones', 'ventas', 'soporte')
   );
 
--- Sin politica de insercion a proposito: el unico camino al historico es el disparador
--- deals_stage_change, que es security definer y por tanto puede escribir aunque quien mueve
--- la tarjeta no tenga permiso propio sobre la tabla.
-create policy deal_events_read on public.deal_events
+-- La mueve quien la tiene asignada o el rol dueno de ese camino: ventas no cierra una ruta
+-- de riesgo y operaciones no cierra la comercial.
+create policy routes_update on public.routes
+  for update to authenticated using (
+    owner_id = public.current_user_id()
+    or (kind = 'documentacion' and public.current_role_name() in ('admin', 'compliance'))
+    or (kind = 'comercial' and public.current_role_name() in ('admin', 'ventas'))
+    or (kind = 'riesgo' and public.current_role_name() in ('admin', 'operaciones', 'compliance'))
+  ) with check (
+    owner_id = public.current_user_id()
+    or (kind = 'documentacion' and public.current_role_name() in ('admin', 'compliance'))
+    or (kind = 'comercial' and public.current_role_name() in ('admin', 'ventas'))
+    or (kind = 'riesgo' and public.current_role_name() in ('admin', 'operaciones', 'compliance'))
+  );
+
+-- Sin politica de insercion a proposito: el unico camino al historial son los disparadores
+-- routes_event_insert y routes_event_update, que son security definer y por tanto pueden
+-- escribir aunque quien mueve la ruta no tenga permiso propio sobre la tabla.
+create policy route_events_read on public.route_events
   for select to authenticated using (true);
 
 create policy activities_read on public.activities
@@ -345,7 +416,7 @@ create policy client_tags_write on public.client_tags
   );
 
 -- ---------------------------------------------------------------------------
--- Reclamos y ruta C
+-- Reclamos
 -- ---------------------------------------------------------------------------
 
 -- Un reclamo es material de trabajo de Cumplimiento y Soporte; el resto del equipo lo ve
@@ -360,31 +431,31 @@ create policy claims_write on public.claims
     public.current_role_name() in ('admin', 'compliance', 'soporte')
   );
 
-create policy ecp_profile_read on public.client_ecp_profile
-  for select to authenticated using (true);
-
-create policy ecp_profile_write on public.client_ecp_profile
-  for all to authenticated using (
-    public.current_role_name() in ('admin', 'compliance', 'operaciones')
-  ) with check (
-    public.current_role_name() in ('admin', 'compliance', 'operaciones')
-  );
-
 -- ---------------------------------------------------------------------------
--- Auditoria
+-- El registro: auditoria
 -- ---------------------------------------------------------------------------
 
 -- Bitacora de quien hizo que y cuando. Nada de esto se puede editar ni borrar.
+--
+-- actor_kind y outcome existen para poder filtrar sin adivinar: un asiento de un agente
+-- automatico no se confunde con el de una persona, y 'rechazado' deja constancia del intento
+-- que la base no dejo pasar.
 create table public.audit_events (
   id bigint generated always as identity primary key,
   actor text not null,
   actor_id uuid references public.profiles (id) on delete set null,
+  actor_kind public.audit_actor_kind not null default 'humano',
   action text not null,
-  detail text,
   entity_type text,
   entity_id text,
+  detail text,
+  changed_before jsonb,
+  changed_after jsonb,
+  outcome public.audit_outcome not null default 'exito',
   trace_id text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Un asiento que dice "rechazado" sin explicar por que no sirve para nada despues.
+  constraint audit_events_rechazo_explicado check (outcome <> 'rechazado' or detail is not null)
 );
 
 -- Va aqui y no en el bloque del principio: la tabla nace en este fichero, mas abajo de
@@ -393,6 +464,7 @@ alter table public.audit_events enable row level security;
 
 create index audit_events_created_idx on public.audit_events (created_at desc);
 create index audit_events_entity_idx on public.audit_events (entity_type, entity_id);
+create index audit_events_actor_idx on public.audit_events (actor_kind, created_at desc);
 
 create or replace function public.block_audit_mutation()
 returns trigger
@@ -423,10 +495,10 @@ create policy audit_insert on public.audit_events
 revoke update, delete on public.audit_events from authenticated;
 revoke update, delete on public.audit_events from anon;
 
--- El historico del embudo y los contadores de la bandeja los mueven unicamente los
--- disparadores. Un usuario no puede reescribir quien movio una tarjeta ni cuando.
-create trigger deal_events_no_direct_write
-  before insert or update or delete on public.deal_events
+-- El historial de las rutas y los contadores de la bandeja los mueven unicamente los
+-- disparadores. Un usuario no puede reescribir quien movio una ruta ni cuando.
+create trigger route_events_no_direct_write
+  before insert or update or delete on public.route_events
   for each row
   when (coalesce(current_setting('crm.system_write', true), '') <> 'on')
   execute function public.denies_direct_write();
@@ -444,46 +516,12 @@ create trigger messages_no_update
 -- Vistas de medicion
 -- ---------------------------------------------------------------------------
 
--- Embudo por etapa, con el volumen previsto promedio.
-create or replace view public.vw_funnel_by_stage
-with (security_invoker = true) as
-select d.stage,
-       ds.label,
-       count(*) as deals,
-       count(*) filter (where d.created_at >= now() - interval '30 days') as deals_30d,
-       round(avg(d.monthly_volume)) as volumen_mensual_promedio_usd
-from public.deals d
-join public.deal_stages ds on ds.stage = d.stage
-where d.deleted_at is null
-group by d.stage, ds.label
-order by d.stage;
-
--- Dias que lleva cada negocio en su etapa actual, segun el historial.
-create or replace view public.vw_stage_age
-with (security_invoker = true) as
-with ultimo_movimiento as (
-  select deal_id, max(created_at) as moved_at
-  from public.deal_events
-  group by deal_id
-)
-select d.id as deal_id,
-       d.code,
-       c.display_name as cuenta,
-       d.stage,
-       ds.label as etapa,
-       d.owner_id,
-       greatest(0, floor(extract(epoch from (now() - coalesce(um.moved_at, d.created_at))) / 86400))::integer as dias_en_etapa
-from public.deals d
-join public.clients c on c.id = d.client_id
-join public.deal_stages ds on ds.stage = d.stage
-left join ultimo_movimiento um on um.deal_id = d.id
-where d.deleted_at is null and c.deleted_at is null;
-
--- La jornada del ejecutivo: tareas abiertas ordenadas por vencimiento.
+-- La jornada del equipo: tareas abiertas ordenadas por vencimiento.
 create or replace view public.vw_open_activities
 with (security_invoker = true) as
 select a.id, a.type, a.title, a.due_at, a.owner_id, a.client_id, c.display_name as cuenta,
-       (a.due_at < now()) as vencida
+       a.route_id,
+       (a.due_at is not null and a.due_at < now()) as vencida
 from public.activities a
 join public.clients c on c.id = a.client_id
 where a.deleted_at is null and a.done_at is null and c.deleted_at is null
@@ -493,7 +531,8 @@ order by a.due_at nulls last;
 -- por fila de las tablas de base no se hereda y cualquiera veria todo por la vista.
 grant select on public.vw_inbox, public.vw_conversations_sla, public.vw_messages_flagged,
   public.vw_cadence_pending, public.vw_compliance_progress, public.vw_claims_sla,
-  public.vw_funnel_by_stage, public.vw_stage_age, public.vw_open_activities
+  public.vw_signals_open, public.vw_outbox_pending, public.vw_routes_by_state,
+  public.vw_route_age, public.vw_open_activities
   to authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -506,7 +545,7 @@ grant select on public.vw_inbox, public.vw_conversations_sla, public.vw_messages
 -- necesita select tambien sobre la tabla de base, no solo sobre la vista) y el portarse como
 -- toca cuando no hay sesion iniciada. Se pone aqui para que el esquema se comporte igual en
 -- la base que se elija el 30/10. Fallar hacia cerrado: lo que no esta otorgado no se puede
--- leer, aunque la politica por fila se equivque.
+-- leer, aunque la politica por fila se equivoque.
 
 grant usage on schema public to anon, authenticated, service_role;
 

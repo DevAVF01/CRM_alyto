@@ -5,12 +5,19 @@ import { useRuntime } from '../runtime/RuntimeProvider';
 import { Icon } from './ui';
 import type { IconName } from './ui';
 
+// Navegación del CRM. La entrada es la Bandeja, que es el trabajo de todos los días; Pipeline ya
+// no existe porque el embudo de seis etapas pasó a vivir dentro de la ruta comercial.
+// El Registro queda arriba y no en el menú de abajo por dos motivos: lo leen solo administración y
+// cumplimiento, y no es una cola a la que alguien entre cada hora.
 const NAV_ITEMS: { to: string; label: string; icon: IconName; end?: boolean }[] = [
-  { to: '/', label: 'Panel', icon: 'grid', end: true },
-  { to: '/pipeline', label: 'Pipeline', icon: 'kanban' },
-  { to: '/clientes', label: 'Clientes', icon: 'users' },
-  { to: '/comunicaciones', label: 'Mensajes', icon: 'mail' },
-  { to: '/cumplimiento', label: 'Cumplimiento', icon: 'shield' },
+  { to: '/panel', label: 'Panel', icon: 'kanban' },
+  { to: '/', label: 'Bandeja', icon: 'inbox', end: true },
+  { to: '/rutas', label: 'Rutas', icon: 'route' },
+  { to: '/cuentas', label: 'Cuentas', icon: 'users' },
+  { to: '/legajo', label: 'Legajo', icon: 'doc' },
+  { to: '/reclamos', label: 'Reclamos', icon: 'warning' },
+  { to: '/agenda', label: 'Agenda', icon: 'calendar' },
+  { to: '/personal', label: 'Personal', icon: 'key' },
 ];
 
 export default function Shell() {
@@ -33,7 +40,7 @@ export default function Shell() {
           <span>
             <span className="topbar__title">Alyto CRM</span>
             <br />
-            <span className="topbar__subtitle">AV Finance ECP</span>
+            <span className="topbar__subtitle">Operaciones y servicio</span>
           </span>
         </div>
         <div className="topbar__meta">
@@ -55,7 +62,16 @@ export default function Shell() {
             type="button"
             className="icon-btn"
             style={{ background: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.25)', color: '#ffffff' }}
-            title={`Cerrar sesión (${user?.email ?? ''})`}
+            title="El registro: quién hizo qué y cuándo"
+            onClick={() => navigate('/registro')}
+          >
+            <Icon name="list" size={16} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            style={{ background: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.25)', color: '#ffffff' }}
+            title={`Cerrar sesión (${user?.email ?? ''}), rol ${user?.role ?? ''}`}
             onClick={handleLogout}
           >
             <Icon name="logout" size={16} />
@@ -67,13 +83,14 @@ export default function Shell() {
         <p className={`demobar demobar--${runtime.tone}`} role="status">
           <span className="demobar__dot" />
           {runtime.demo
-            ? 'Datos de demostración. No ingresar información real de clientes en este modo.'
+            ? 'El CRM no está leyendo la base de Supabase con su sesión. Las pantallas salen vacías o con el aviso del backend, nunca con datos de relleno.'
             : `${runtime.label}. ${runtime.detail}`}
         </p>
       ) : null}
 
       <nav className="bottomnav" aria-label="Navegación principal">
-        {NAV_ITEMS.map((item) => (
+        {/* Personal es una pantalla de administración: los otros roles ni la ven ni la alcanzan. */}
+        {NAV_ITEMS.filter((item) => !['/personal', '/panel'].includes(item.to) || user?.role === 'admin').map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

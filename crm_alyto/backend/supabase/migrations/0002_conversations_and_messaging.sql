@@ -20,7 +20,11 @@ create type public.query_category as enum (
 );
 
 create type public.message_direction as enum ('entrante', 'saliente');
-create type public.message_status as enum ('recibido', 'enviado', 'entregado', 'leido', 'fallido');
+-- 'en_cola' es el estado de una salida que todavia no pudo irse: el conector del canal esta
+-- apagado o fallo. Sin ese estado no hay forma de mostrar la bandeja de salida pendiente, y
+-- un mensaje "enviado" que nunca salio es justamente lo que el guardarrail de no fingir
+-- impide escribir.
+create type public.message_status as enum ('recibido', 'en_cola', 'enviado', 'entregado', 'leido', 'fallido');
 
 -- Diccionario de terminos vetados por el glosario institucional. Vive en la base y no en el
 -- codigo para que Cumplimiento pueda ampliarlo sin desplegar nada.
@@ -180,12 +184,22 @@ create table public.messages (
   sender_label text,
   template_id uuid references public.templates (id) on delete set null,
   automated boolean not null default false,
-  cadence_execution_id uuid,
+  journey_run_id uuid,
   external_msg_id text,
   status public.message_status not null default 'recibido',
   sent_by uuid references public.profiles (id) on delete set null,
   sent_at timestamptz not null default now(),
-  created_at timestamptz not null default now()
+  -- Reintentos del conector. Sin esto un mensaje en cola no dice cuantas veces se intento ni
+  -- porque no salio, y reintentar desde la pantalla no tiene de donde sacar el criterio.
+  attempts smallint not null default 0 check (attempts between 0 and 20),
+  last_error text,
+  created_at timestamptz not null default now(),
+  -- Un mensaje entrante no puede estar "en cola" porque nadie lo puso en una cola de envio, y
+  -- uno saliente no puede estar "recibido" porque todavia no regreso nada del canal.
+  constraint messages_estado_por_direccion check (
+    (direction = 'entrante' and status in ('recibido', 'leido', 'fallido'))
+    or (direction = 'saliente' and status in ('en_cola', 'enviado', 'entregado', 'leido', 'fallido'))
+  )
 );
 
 create unique index messages_external_idx on public.messages (channel, external_msg_id)
@@ -230,8 +244,8 @@ create trigger messages_language_guard
   for each row when (new.direction = 'saliente' and new.channel <> 'interno'::public.channel_kind)
   execute function public.block_prohibited_language();
 
--- La clave ajena hacia cadence_executions se declara en 0003, que es donde nace esa tabla:
--- una clave foranea no puede apuntar hacia adelante.
+-- La clave ajena hacia journey_runs se declara en 0003, que es donde nace esa tabla: una
+-- clave foranea no puede apuntar hacia adelante.
 
 -- Contadores del hilo, mantenidos por el sistema.
 --
@@ -283,24 +297,41 @@ set search_path = public
 as $$
 declare
   correo text;
+  actor public.audit_actor_kind := 'sistema';
 begin
   correo := coalesce(
     public.current_user_email(),
     (select p.email from public.profiles p where p.id = new.sent_by),
     'sistema'
   );
+  if correo <> 'sistema' then
+    actor := 'humano';
+  end if;
 
-  insert into public.audit_events (actor, action, entity_type, entity_id, detail)
+  -- El detalle lleva las primeras 240 caracteres del cuerpo, no el mensaje completo: la
+  -- bitacora tiene que permitir reconstruir que se mando sin convertirse en una segunda copia
+  -- del contenido de los clientes.
+  insert into public.audit_events (actor, actor_kind, action, entity_type, entity_id, detail, outcome)
   values (
     correo,
+    actor,
     'mensaje_' || new.direction,
     'messages',
     new.id::text,
-    left(new.body, 240)
+    left(new.body, 240),
+    'exito'
   );
   return new;
 end;
 $$;
+
+-- El disparador estaba suelto: la funcion existia desde el modelo anterior y nadie la enganchaba
+-- a la tabla, asi que ningun mensaje dejaba asiento y el registro arrancaba vacio. Con esto
+-- queda cubierto el movimiento que le importa a ASFI: que se le dijo al cliente, por que canal y
+-- quien lo mando.
+create trigger messages_audit_after_insert
+  after insert on public.messages
+  for each row execute function public.log_message_audit();
 
 -- Nivel de servicio: las conversaciones que ya superaron las horas habiles de garantia.
 --
@@ -365,7 +396,7 @@ select c.id,
        c.client_id,
        cl.display_name as cliente,
        cl.account_type,
-       cl.onboarding_stage,
+       cl.kyc_estado,
        c.channel,
        c.query_category,
        c.queue,
@@ -411,3 +442,29 @@ join public.blocked_terms bt
   on bt.severity = 'advertencia'
  and bt.is_active
  and position(lower(bt.term) in lower(m.body)) > 0;
+
+-- Bandeja de salida: lo que el CRM quiso mandar y no pudo. Son las salientes en cola y las
+-- fallidas, con el hilo y el cliente para poder reintentarlas desde la pantalla.
+--
+-- Sin esta vista el conector caido es invisible: el agente ve el mensaje en el hilo como si
+-- estuviera enviado, y la garantia de respuesta se cuenta sobre algo que nunca salio.
+create or replace view public.vw_outbox_pending
+with (security_invoker = true) as
+select m.id as message_id,
+       m.conversation_id,
+       c.client_id,
+       cl.display_name as cliente,
+       m.channel,
+       m.status,
+       m.body,
+       m.sent_at,
+       m.attempts,
+       m.last_error,
+       m.journey_run_id
+from public.messages m
+join public.conversations c on c.id = m.conversation_id
+join public.clients cl on cl.id = c.client_id
+where m.direction = 'saliente'
+  and m.status in ('en_cola', 'fallido')
+  and c.deleted_at is null
+order by m.sent_at;

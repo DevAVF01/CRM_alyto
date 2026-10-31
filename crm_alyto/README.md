@@ -22,26 +22,26 @@ crm_alyto/
 │   ├── src/
 │   │   ├── app.js             Middlewares, Sentry, Winston, rutas
 │   │   ├── server.js          Punto de entrada
-│   │   ├── config/            supabase.js, firebase.js
-│   │   ├── controllers/       auth, clients, deals, compliance, communications, messaging, reports, notifications
-│   │   ├── data/store.js      Almacén en memoria sembrado (modo demo del ECP)
-│   │   ├── data/repository.js Las cuatro lecturas sobre las vistas, con la sesión del usuario
-│   │   ├── middleware/auth.js authenticate y requireRole desde la skill
-│   │   ├── routes/            Montaje bajo /api
-│   │   └── services/          stellarService, kycService, notificationService
-│   ├── supabase/migrations/   Modelo de datos: 6 migraciones, 26 tablas, RLS y Storage
+│   │   ├── config/            env, runtime, supabase, firebase
+│   │   ├── controllers/       auth, crm, notifications
+│   │   ├── data/repository.js El puente fino con Supabase: 11 vistas y 16 tablas, con la sesión del usuario
+│   │   ├── data/store.js      Almacén en memoria que todavía usan las notificaciones
+│   │   ├── middleware/        auth (sesión y rol), dataLayer (guard de capa de datos), brandLinter
+│   │   ├── routes/            index.js monta /auth, /crm y /notifications
+│   │   └── services/          agentService, connectorClient, notificationService
+│   ├── supabase/migrations/   Modelo del CRM: 25 tablas, 11 vistas, enums, RLS y disparadores
 │   ├── supabase/seed.sql      Datos de arranque del expediente del ECP
-│   ├── supabase/legacy/       Borrador de esquema anterior, no se ejecuta
+│   ├── supabase/desarmar.sql  El unico paso destructivo del montaje, candado incluido
+│   ├── supabase/verificacion.sql  50 chequeos que tienen que salir en verde
 │   └── .env.example
 ├── docker/                    Dockerfile.backend, Dockerfile.frontend, nginx/default.conf
 ├── frontend/                  React 18 + Vite + TypeScript, puerto 5173
 │   └── src/
-│       ├── api/client.ts      Cliente HTTP con unwrap de {data} y descargas
+│       ├── api/client.ts      Un solo base /api, el token de la sesión y las operaciones del puente /crm
 │       ├── auth/AuthContext   Sesión, rol y persistencia en localStorage
-│       ├── components/        Shell (sidebar/topbar) y primitivas ui
-│       ├── data/mock.ts       Datos de demostración para el modo sin backend
-│       ├── hooks/useApiData   Datos live con fallback y reinicio manual
-│       ├── screens/           Login, Dashboard, Pipeline, Client360, Communications, Compliance
+│       ├── components/        Shell (sidebar/topbar), primitivas ui y Aviso (cargando/vacío/rechazo)
+│       ├── hooks/useApiData   Lectura con recargo manual; sin datos de relleno
+│       ├── screens/           Bandeja, Rutas, Cuentas, Ficha, Legajo, Reclamos, Agenda, Registro, Login
 │       ├── styles/            tokens.css (paleta institucional) y global.css
 │       └── utils/brandCopy.ts Glosario de marca y textos del ECP
 ├── mcp/
@@ -259,40 +259,45 @@ Todas las respuestas de éxito tienen forma `{data: ...}` y los errores `{error:
 | --- | --- | --- |
 | `POST /api/auth/login` | público | Crear sesión |
 | `GET /api/auth/me` | cualquier rol | Sesión vigente |
-| `GET /api/messaging` | cualquier rol | Qué lecturas hay y con qué usuario se leen |
-| `GET /api/messaging/inbox` | cualquier rol | Bandeja real: la vista `vw_inbox` de la base |
-| `GET /api/messaging/sla` | cualquier rol | Hilos abiertos con sus horas hábiles sin atención |
-| `GET /api/messaging/cadencia` | cualquier rol | El paso pendiente de cada cadencia activa |
-| `GET /api/messaging/reclamos` | cualquier rol | Reclamos con su plazo y su semáforo |
-| `GET /api/meta/stages` | cualquier rol | Las 6 etapas del embudo |
-| `GET /api/clients` | cualquier rol | Expedientes corporativos |
-| `GET /api/clients/:id` | cualquier rol | Detalle 360: wallets, transacciones y deal |
-| `GET /api/transfers` | cualquier rol | Transferencias internacionales registradas |
-| `GET /api/deals`, `POST /api/deals` | ventas, operaciones, admin | Embudo |
-| `PATCH /api/deals/:id/stage` | ventas, operaciones, admin | Mover tarjeta de etapa |
-| `GET /api/compliance/summary` | cualquier rol | KPIs de debida diligencia |
-| `GET /api/compliance/limits` | cualquier rol | Límites del ECP y matriz de riesgo UIF |
-| `GET /api/compliance/directrices` | cualquier rol | Directrices desde el conector KYC/AML |
-| `GET /api/compliance/checklist/:clientId` | cualquier rol | Checklist del expediente |
-| `POST /api/compliance/checklist/:clientId/items/:itemKey` | admin, compliance | Cambiar estado de un ítem |
-| `GET /api/compliance/audit` | cualquier rol | Asientos de auditoría |
-| `POST /api/compliance/audit` | admin, compliance | Registrar asiento |
-| `GET /api/communications/templates`, `/objections` | cualquier rol | Plantillas y catálogo de objeciones |
-| `POST /api/communications/send` | admin, ventas, soporte | Renderizar plantilla, auditar y enviar push |
-| `POST /api/reports/transfer-receipt` | admin, operaciones, ventas | Comprobante PDF de la operación test |
-| `GET /api/reports/validation-sheet/:clientId` | admin, compliance | Ficha de validación documental en PDF |
+| `GET /api/health` | público | Estado del runtime: capa de datos, autenticación y modo demo |
+| `GET /api/crm` | cualquier rol | Qué lecturas hay y con qué usuario y rol se leen |
+| `GET /api/crm/bandeja` | cualquier rol | La vista `vw_inbox`: un resumen por conversación |
+| `GET /api/crm/bandeja/sla` | cualquier rol | Hilos abiertos con horas hábiles sin atención y su vencimiento |
+| `GET /api/crm/bandeja/salida` | cualquier rol | Mensajes salientes en cola o fallidos |
+| `GET /api/crm/bandeja/banderas` | cualquier rol | Mensajes marcados por el glosario de términos vetados |
+| `GET /api/crm/hilos/:id`, `POST .../mensajes`, `PATCH` | cualquier rol | Hilo completo, responder (queda `en_cola`) y cambiar estado, cola, prioridad o responsable |
+| `GET /api/crm/rutas`, `/rutas/tablero`, `/rutas/:id` | cualquier rol | Las tres rutas paralelas, su tablero por cuenta y su historial de asientos |
+| `POST /api/crm/rutas`, `PATCH /api/crm/rutas/:id` | cualquier rol | Abrir una ruta y moverla; bloquear o cerrar sin motivo lo rechaza la base |
+| `GET /api/crm/senales`, `/viajes` | cualquier rol | Señales abiertas y el paso pendiente de cada cadencia |
+| `GET /api/crm/legajo`, `/requisitos` | cualquier rol | Avance del legajo por cuenta y el catálogo de requisitos |
+| `PATCH /api/crm/casillas/:clientId/:code` | cualquier rol | Revisar un requisito; aprobar sin documento lo rechaza la base |
+| `GET /api/crm/reclamos`, `POST`, `PATCH /:id` | alta y cierre: admin, compliance, soporte | Reclamos con plazo, semáforo y resolución |
+| `GET /api/crm/actividades`, `POST`, `PATCH /:id` | cualquier rol | Agenda abierta, alta y cierre por `done_at` |
+| `GET /api/crm/cuentas`, `POST`, `PATCH /:id`, `/fichas/:clientId` | cualquier rol | Cuentas, alta y Ficha 360 con sus nueve bloques |
+| `GET /api/crm/contactos`, `/plantillas`, `/cotejos` | cualquier rol | Contactos, plantillas aprobadas y cotejos contra listas |
+| `GET /api/crm/registro` | admin, compliance | `audit_events`, inmutable |
+| `GET /api/crm/glosario`, `/parametros` | admin, compliance | Términos vetados y parámetros del ECP |
 | `GET /api/notifications/vapid-public-key` | cualquier rol | Clave pública VAPID |
 | `POST /api/notifications/subscriptions`, `/test-push` | cualquier rol | Suscripción y prueba de push |
 
-### 4.4 Las cuatro vistas y su fuente de datos
+No hay `/api/deals`, `/api/clients`, `/api/transfers`, `/api/reports`, `/api/compliance`,
+`/api/communications` ni `/api/meta/stages`: esas direcciones hablaban del embudo de ventas y del
+almacén en memoria, y se fueron con el modelo del 27/10. Un enlace viejo devuelve 404 en la cara.
 
-Cada pantalla llama a la API real y, si el backend no responde, cae a `frontend/src/data/mock.ts`. La pastilla del encabezado indica en todo momento **API conectada** o **Modo demostración**, y el topbar ofrece recargar.
+### 4.4 Las pantallas y su fuente de datos
 
-* **Dashboard**: transferencias y expedientes en vivo, con cuatro filtros por estado y navegación directa a las demás vistas.
-* **Pipeline**: tablero Kanban de las 6 etapas, con cambio de etapa optimista (si la API rechaza, la tarjeta vuelve a su columna y se muestra el motivo) y alta de prospectos.
-* **Cliente 360**: ficha del expediente con edición del checklist documental, descarga de la ficha de validación y registro de la operación test con su comprobante.
-* **Comunicaciones**: selección de destinatario, plantilla u objeción, variables y canal; el envío devuelve el número de asiento de auditoría generado en el backend.
-* **Cumplimiento**: resumen de debida diligencia, directrices del conector KYC/AML, límites operativos del ECP (630 usuarios y 630 operaciones por día, monto máximo por operación), matriz de riesgo UIF calculada sobre los expedientes reales y registro de auditoría.
+Toda pantalla lee y escribe contra `backend/src/data/repository.js`, y el puente usa solo el token de
+la sesión: lo que aparece en pantalla es exactamente lo que el rol puede ver. Si falta la
+configuración el backend responde 503 y la pantalla muestra el aviso, nunca una cifra inventada; no
+existen los datos de relleno. La pastilla del encabezado dice si se está leyendo la base.
+
+* **Bandeja** (entrada del CRM): conversaciones por canal y cola, nivel de servicio, salida en cola, mensajes marcados y señales abiertas. Desde el mismo hilo se responde y se cambia el estado.
+* **Rutas**: las tres rutas paralelas por cuenta (documentación, comercial, riesgo), su tablero y la cadencia B2B de 14 días con el paso pendiente.
+* **Cuentas** y **Ficha 360**: alta de cuenta con lo que exige la base, y la ficha con contactos, legajo, documentos, rutas, hilos, señales, cotejos, reclamos y su registro.
+* **Legajo**: avance por cuenta sobre los requisitos de debida diligencia, con la regla de que un requisito con documento no se aprueba sin documento aprobado.
+* **Reclamos**: alta con código correlativo, semáforo de días y cierre con resolución.
+* **Agenda**: llamadas, reuniones y tareas abiertas; se cierran escribiendo `done_at`.
+* **Registro**: `audit_events` filtrado por actor, acción, entidad y resultado.
 
 ### 4.5 Conectores MCP
 

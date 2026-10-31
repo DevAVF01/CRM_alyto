@@ -1,37 +1,28 @@
 import { Router } from 'express';
-import { login, me } from '../controllers/authController.js';
+import { login, me, solicitudCuenta } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
 import { requireDataLayer, requireScopedRead } from '../middleware/dataLayer.js';
-import { store } from '../data/store.js';
-import clientRoutes from './clients.routes.js';
-import messagingRoutes from './messaging.routes.js';
-import transferRoutes from './transfers.routes.js';
-import dealRoutes from './deals.routes.js';
-import complianceRoutes from './compliance.routes.js';
-import communicationsRoutes from './communications.routes.js';
-import reportsRoutes from './reports.routes.js';
+import crmRoutes from './crm.routes.js';
 import notificationsRoutes from './notifications.routes.js';
 
 export default function routes() {
   const router = Router();
 
   router.post('/auth/login', login);
+  router.post('/auth/solicitud', solicitudCuenta);
   router.get('/auth/me', authenticate, me);
-  router.get('/meta/stages', authenticate, requireDataLayer, (req, res) => res.json({ data: store.stages }));
 
-  const dataRoutes = [authenticate, requireDataLayer];
+  // El CRM entero vive bajo /crm: una sola superficie, leida y escrita con el token del usuario que
+  // entro. Las direcciones antiguas (/clients, /deals, /transfers, /reports, /compliance,
+  // /communications y /meta/stages) hablaban del embudo de ventas y del almacen en memoria, y se
+  // fueron con el modelo del 27/10. No hay redireccion: un enlace viejo debe fallar en la cara, no
+  // mostrar una pantalla que ya no existe.
+  router.use('/crm', authenticate, requireScopedRead, crmRoutes);
 
-  // Las lecturas del CRM de mensajeria no pasan por requireDataLayer: no tienen version en
-  // memoria, y mezclarlas con los datos de demostracion seria peor que un 503.
-  router.use('/messaging', authenticate, requireScopedRead, messagingRoutes);
-
-  router.use('/clients', ...dataRoutes, clientRoutes);
-  router.use('/transfers', ...dataRoutes, transferRoutes);
-  router.use('/deals', ...dataRoutes, dealRoutes);
-  router.use('/compliance', ...dataRoutes, complianceRoutes);
-  router.use('/communications', ...dataRoutes, communicationsRoutes);
-  router.use('/reports', ...dataRoutes, reportsRoutes);
-  router.use('/notifications', ...dataRoutes, notificationsRoutes);
+  // Las notificaciones son el unico extremo que todavia lee del almacen de demostracion, y por eso
+  // lleva el guard de modo. No toca datos del cliente: avisa, y si el conector no esta responde 502
+  // diciendo cual falta.
+  router.use('/notifications', authenticate, requireDataLayer, notificationsRoutes);
 
   return router;
 }

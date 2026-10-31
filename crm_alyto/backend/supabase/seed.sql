@@ -15,7 +15,7 @@
 --   2) Ejecutar en el SQL Editor, en este orden:
 --        migrations/0001_identity_and_people.sql
 --        migrations/0002_conversations_and_messaging.sql
---        migrations/0003_cadences_onboarding_commercial_claims.sql
+--        migrations/0003_journeys_routes_documents_claims.sql
 --        migrations/0004_security_and_privileges.sql
 --        migrations/0006_glossary_seed.sql
 --      0005 no va aqui: crea el bucket de almacen, y storage.objects pertenece a otro rol,
@@ -35,8 +35,10 @@
 -- Como esta armado:
 --   * Las columnas calculadas (last_inbound_at, last_message_at, messages_count, el avance
 --     del legajo) no se escriben a mano: las producen los disparadores y las vistas.
---   * La lista de casillas del legajo la genera el disparador clients_compliance_template al
---     insertar la cuenta. Aqui solo se cambia el estado de cada casilla.
+--   * La lista de requisitos del legajo la genera el disparador clients_document_reviews_template
+--     al insertar la cuenta. Aqui solo se cambia el estado de cada requisito.
+--   * El historial de las rutas tampoco se escribe a mano: lo arma el disparador
+--     routes_event_insert con la apertura y routes_event_update con cada cambio de estado.
 --   * Las identificaciones son literales fijos, no gen_random_uuid(), para poder volver a
 --     correr el archivo sin duplicar filas.
 
@@ -134,7 +136,22 @@ values
    'Hola, [Nombre]. Cerramos el ciclo de contacto iniciado hace dos semanas. Dejamos la cuenta en pausa y el equipo queda disponible cuando retomen la evaluacion de pagos al exterior. Saludos desde Alyto.',
    array['nombre'],
    (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'),
-   now() - interval '28 days', true)
+   now() - interval '28 days', true),
+
+  ('00000000-0000-4000-8000-0000000002d9', 'REQ_DOCUMENTOS_CORREO', 1,
+   'Requerimiento de documentos pendientes', 'correo',
+   'Alyto: documentos pendientes en tu legajo',
+   'Hola, [Nombre]. Al revisar tu legajo quedaron documentos pendientes: [ListaDocumentos]. Puedes subirlos desde alyto.io o responder este correo con los archivos adjuntos. El equipo de Cumplimiento los revisa dentro de un dia habil.',
+   array['nombre', 'lista_documentos'],
+   (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'),
+   now() - interval '12 days', true),
+
+  ('00000000-0000-4000-8000-0000000002da', 'SEGUIMIENTO_CONSULTA', 1,
+   'Seguimiento de consulta sin respuesta', 'whatsapp', null,
+   'Hola, [Nombre]. Retomo la consulta que dejaste abierta hace dos dias. Tu respuesta nos permite seguir avanzando; si preferis hablar con una persona, responde este mensaje y te conectamos con el equipo.',
+   array['nombre'],
+   (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'),
+   now() - interval '12 days', true)
 
 on conflict (id) do update set
   name = excluded.name,
@@ -156,68 +173,68 @@ on conflict (id) do update set
 
 insert into public.clients
   (id, account_type, display_name, legal_name, ci, nit, email, phone_e164, company_name,
-   city, sector, source, onboarding_stage, payments_ref, owner_id, last_activity_at)
+   city, sector, origin, payments_ref, owner_id, last_activity_at)
 values
   ('00000000-0000-4000-8000-0000000000c1', 'persona_juridica',
    'Comercializadora del Valle S.A.', 'Comercializadora del Valle S.A.', null, '9000000001',
    'compras@valle.demo.bo', '+59122445501', 'Comercializadora del Valle S.A.',
-   'La Paz', 'Comercio exterior', 'linkedin', 'Validacion KYC', null,
+   'La Paz', 'Comercio exterior', 'linkedin', null,
    (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'),
    now() - interval '25 minutes'),
 
   ('00000000-0000-4000-8000-0000000000c2', 'persona_juridica',
    'Grupo Andino S.R.L.', 'Grupo Andino S.R.L.', null, '9000000002',
    'finanzas@andino.demo.bo', '+59122445502', 'Grupo Andino S.R.L.',
-   'La Paz', 'Pago a proveedores', 'correo', 'Vinculacion completada', null,
+   'La Paz', 'Pago a proveedores', 'correo', null,
    (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'),
    now() - interval '4 minutes'),
 
   ('00000000-0000-4000-8000-0000000000c3', 'persona_juridica',
    'Importadora Pacifico S.A.', 'Importadora Pacifico S.A.', null, '9000000003',
    'operaciones@pacifico.demo.bo', '+59133445503', 'Importadora Pacifico S.A.',
-   'Santa Cruz de la Sierra', 'Comercio exterior', 'meta', 'Lead capturado', null,
+   'Santa Cruz de la Sierra', 'Comercio exterior', 'meta', null,
    (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'),
    now() - interval '9 days'),
 
   ('00000000-0000-4000-8000-0000000000c4', 'persona_juridica',
    'Logistica Mercosur S.R.L.', 'Logistica Mercosur S.R.L.', null, '9000000004',
    'administracion@mercosur.demo.bo', '+59144445504', 'Logistica Mercosur S.R.L.',
-   'Cochabamba', 'Pago a proveedores', 'formulario', 'Lead capturado', null,
+   'Cochabamba', 'Pago a proveedores', 'derivacion', null,
    (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'),
    now() - interval '3 days'),
 
   ('00000000-0000-4000-8000-0000000000c5', 'persona_juridica',
    'Agroindustrial del Oriente S.A.', 'Agroindustrial del Oriente S.A.', null, '9000000005',
    'comex@oriente.demo.bo', '+59133445505', 'Agroindustrial del Oriente S.A.',
-   'Santa Cruz de la Sierra', 'Comercio exterior', 'referido', 'Validacion KYC', null,
+   'Santa Cruz de la Sierra', 'Comercio exterior', 'derivacion', null,
    (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'),
    now() - interval '2 days'),
 
   ('00000000-0000-4000-8000-0000000000c6', 'persona_natural',
    'Maria Fernanda Quispe', null, '90000001', null,
    'mf.quispe@correo.demo.bo', '+59170010001', null,
-   'La Paz', null, 'whatsapp', 'Primera operacion', null,
+   'La Paz', null, 'whatsapp_business', null,
    (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
    now() - interval '3 days'),
 
   ('00000000-0000-4000-8000-0000000000c7', 'persona_natural',
    'Jorge Andres Mendoza', null, '90000002', null,
    'ja.mendoza@correo.demo.bo', '+59170010002', null,
-   'El Alto', null, 'chat_app', 'Vinculacion completada', null,
+   'El Alto', null, 'chat_app', null,
    (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
    now() - interval '1 day'),
 
   ('00000000-0000-4000-8000-0000000000c8', 'persona_natural',
    'Lucia Fernandez Rocha', null, null, null,
    null, '+59170010003', null,
-   'Cochabamba', null, 'web_chat', 'Lead capturado', null,
+   'Cochabamba', null, 'web_chat', null,
    (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
    now() - interval '1 hour'),
 
   ('00000000-0000-4000-8000-0000000000c9', 'persona_natural',
    'Roberto Carlos Salazar', null, '90000004', null,
    'rc.salazar@correo.demo.bo', '+59170010004', null,
-   'Santa Cruz de la Sierra', null, 'tiktok', 'Recurrencia', null,
+   'Santa Cruz de la Sierra', null, 'tiktok', null,
    (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
    now() - interval '6 hours')
 
@@ -232,10 +249,54 @@ on conflict (id) do update set
   company_name = excluded.company_name,
   city = excluded.city,
   sector = excluded.sector,
-  source = excluded.source,
-  onboarding_stage = excluded.onboarding_stage,
+  origin = excluded.origin,
   owner_id = excluded.owner_id,
   last_activity_at = excluded.last_activity_at;
+-- cuentas-nueve-demo
+
+-- Ficha del Entorno Controlado de Pruebas.
+--
+-- ecp_account queda vacio en las nueve cuentas: ese numero lo emite la app de pagos, y el
+-- sembrado no inventa identificadores de otro sistema (la misma regla que deja vacios
+-- payments_ref, transaction_ref y asfi_ref). Lo que si se llena es el estado del legajo y el
+-- perfil de riesgo, porque eso es trabajo de Cumplimiento dentro de este CRM.
+--
+-- Tres situaciones distintas, para que la Ficha 360 tenga de donde mostrar:
+--   c2 Grupo Andino: legajo aprobado y clasificado, con tope y cupo anotados.
+--   c6 Maria Fernanda: observada por cumplimiento, todavia sin clasificar.
+--   c9 Roberto Salazar: aprobado con riesgo medio.
+-- El resto se queda en 'Pendiente' y 'por clasificar', que es el estado real de una cuenta
+-- recien capturada.
+--
+-- La restriccion clients_ficha_completa exige que un tope anotado venga con riesgo clasificado
+-- y con fecha de revision, así que los tres van juntos o ninguno.
+
+update public.clients c
+set ecp_status = v.alta,
+    kyc_estado = v.kyc::public.kyc_status,
+    riesgo = v.riesgo,
+    tope_operacion_bs = v.tope,
+    cupo_mensual_operaciones = v.cupo,
+    ficha_revisada_en = v.revisada,
+    ficha_nota = v.nota
+from (values
+  ('00000000-0000-4000-8000-0000000000c1'::uuid, 'no dado de alta', 'En revision',
+   'por clasificar', null::numeric, null::integer, null::timestamptz,
+   'Falta el poder de representacion firmado por la representante legal.'),
+  ('00000000-0000-4000-8000-0000000000c2'::uuid, 'activo', 'Aprobado',
+   'bajo', 80000, 40, now() - interval '20 days',
+   'Legajo completo. Los pagos a proveedores salen cada 15 dias.'),
+  ('00000000-0000-4000-8000-0000000000c5'::uuid, 'no dado de alta', 'En revision',
+   'por clasificar', null::numeric, null::integer, null::timestamptz,
+   'Origen de fondos declarado pero sin respaldo adjunto.'),
+  ('00000000-0000-4000-8000-0000000000c6'::uuid, 'activo', 'Observado',
+   'por clasificar', null::numeric, null::integer, now() - interval '5 days',
+   'La cedula vence en quince dias; se pidio la vigente.'),
+  ('00000000-0000-4000-8000-0000000000c9'::uuid, 'activo', 'Aprobado',
+   'medio', 30000, 20, now() - interval '10 days',
+   'Riesgo medio por la frecuencia, no por el monto.')
+) as v(id, alta, kyc, riesgo, tope, cupo, revisada, nota)
+where c.id = v.id;
 -- cuentas-nueve-demo
 
 -- ---------------------------------------------------------------------------
@@ -291,25 +352,104 @@ on conflict (id) do update set
   notes = excluded.notes;
 
 -- ---------------------------------------------------------------------------
--- 4. Cadencia B2B de 14 dias
+-- 4. Senales y viajes automaticos
 -- ---------------------------------------------------------------------------
 
--- Un paso por cada dia de la secuencia del documento de contexto: 1, 2, 4, 7, 10 y 14.
+-- Primero las senales: el hecho que el CRM registro. Despues los viajes, que son la secuencia
+-- que reacciona a ese hecho, y por ultimo las ejecuciones de cada paso.
+--
+-- dedupe_key es la clave anti duplicado: la misma condicion no abre dos senales abiertas a la
+-- vez. Por eso las dos consumidas llevan status distinto de 'abierta' y su consumed_at.
+
+insert into public.signals
+  (id, kind, client_id, contact_id, conversation_id, entity_type, entity_id, detail,
+   status, dedupe_key, created_at, consumed_at)
+values
+  -- Abiertas: la condicion sigue vigente y alguien tiene que resolverla.
+  ('00000000-0000-4000-8000-000000000401', 'documento_observado',
+   '00000000-0000-4000-8000-0000000000c5', '00000000-0000-4000-8000-0000000001d7', null,
+   'document_reviews', '00000000-0000-4000-8000-0000000000c5',
+   jsonb_build_object('requisito', 'origen_fondos', 'motivo', 'El respaldo no aclara el origen del ultimo envio.'),
+   'abierta', 'documento_observado|c5|origen_fondos', now() - interval '4 days', null),
+
+  ('00000000-0000-4000-8000-000000000402', 'datos_incompletos',
+   '00000000-0000-4000-8000-0000000000c1', '00000000-0000-4000-8000-0000000001d1', null,
+   'clients', '00000000-0000-4000-8000-0000000000c1',
+   jsonb_build_object('faltan', 'poder de representacion'),
+   'abierta', 'datos_incompletos|c1', now() - interval '3 days', null),
+
+  ('00000000-0000-4000-8000-000000000403', 'consulta_sin_responder',
+   '00000000-0000-4000-8000-0000000000c8', null, null,
+   'conversations', '00000000-0000-4000-8000-000000000406',
+   jsonb_build_object('horas_sin_respuesta', 6),
+   'abierta', 'consulta_sin_responder|c8-hilo', now() - interval '6 hours', null),
+
+  ('00000000-0000-4000-8000-000000000404', 'sin_respuesta_cliente',
+   '00000000-0000-4000-8000-0000000000c3', '00000000-0000-4000-8000-0000000001d5', null,
+   'clients', '00000000-0000-4000-8000-0000000000c3',
+   jsonb_build_object('dias', 9),
+   'abierta', 'sin_respuesta_cliente|c3', now() - interval '2 days', null),
+
+  ('00000000-0000-4000-8000-000000000405', 'documento_por_vencer',
+   '00000000-0000-4000-8000-0000000000c3', null, null,
+   'documents', '00000000-0000-4000-8000-00000000090a',
+   jsonb_build_object('vence_en_dias', 12, 'requisito', 'representacion'),
+   'abierta', 'documento_por_vencer|c3|representacion', now() - interval '1 day', null),
+
+  -- Consumidas: el viaje ya abrio con esta senal, asi que no vuelve a disparar.
+  ('00000000-0000-4000-8000-000000000406', 'documento_observado',
+   '00000000-0000-4000-8000-0000000000c6', null, null,
+   'document_reviews', '00000000-0000-4000-8000-0000000000c6',
+   jsonb_build_object('requisito', 'identidad', 'motivo', 'La cedula vence en quince dias.'),
+   'consumida', 'documento_observado|c6|identidad', now() - interval '3 days', now() - interval '2 days'),
+
+  ('00000000-0000-4000-8000-000000000407', 'reclamo_recibido',
+   '00000000-0000-4000-8000-0000000000c3', '00000000-0000-4000-8000-0000000001d5', null,
+   'claims', '00000000-0000-4000-8000-000000000801',
+   jsonb_build_object('categoria', 'atraso_respuesta', 'codigo', 'RC-2026-0001'),
+   'consumida', 'reclamo_recibido|c3-rc0001', now() - interval '9 days', now() - interval '9 days')
+
+on conflict (id) do update set
+  kind = excluded.kind,
+  detail = excluded.detail,
+  status = excluded.status,
+  consumed_at = excluded.consumed_at;
+-- senales-siete
+
+-- ---------------------------------------------------------------------------
+-- 4b. Los dos viajes
+-- ---------------------------------------------------------------------------
+
+-- V-01 es la secuencia B2B de 14 dias y 6 pasos del documento de contexto. V-02 es el
+-- requerimiento de documentos pendientes, disparado por la senal del mismo tipo: muestra que
+-- un viaje puede reaccionar a una senal o correr por pedido explicito del equipo.
 -- La clave (template_code, template_version) apunta a la plantilla preaprobada, asi que
 -- cambiar el texto sin versionar no altera las ejecuciones ya enviadas.
 
-insert into public.cadence_templates (id, name, audience, is_active)
-values ('00000000-0000-4000-8000-000000000301',
-        'Cadencia B2B 14 dias, pagos al exterior', 'persona_juridica', true)
-on conflict (id) do update set name = excluded.name, audience = excluded.audience;
+insert into public.journeys (id, code, name, description, audience, trigger_signal, is_active)
+values
+  ('00000000-0000-4000-8000-000000000301', 'V-01',
+   'Cadencia B2B 14 dias, pagos al exterior',
+   'Secuencia de presentacion para empresas: seis pasos en catorce dias por WhatsApp, correo y LinkedIn.',
+   'persona_juridica', null, true),
+  ('00000000-0000-4000-8000-000000000302', 'V-02',
+   'Legajo pendiente: requerimiento de documentos',
+   'Dos pasos cuando un requisito del legajo queda observado o pendiente.',
+   'persona_natural', 'documento_observado', true)
+on conflict (id) do update set
+  code = excluded.code,
+  name = excluded.name,
+  description = excluded.description,
+  audience = excluded.audience,
+  trigger_signal = excluded.trigger_signal;
 
-insert into public.cadence_steps
-  (id, cadence_template_id, step_order, day_number, channel, template_code, template_version, description)
+insert into public.journey_steps
+  (id, journey_id, step_order, day_number, channel, template_code, template_version, description)
 values
   ('00000000-0000-4000-8000-000000000311', '00000000-0000-4000-8000-000000000301', 1, 1,
    'whatsapp', 'PROSPECTO_B2B', 1, 'Primer mensaje de presentacion y propuesta de llamada breve en el ECP.'),
   ('00000000-0000-4000-8000-000000000312', '00000000-0000-4000-8000-000000000301', 2, 2,
-   'correo', 'CAD_B2B_D2_CORREO', 1, 'Resumen ejecutivo y enlace de agendamiento para una reunion de 20 minutos.'),
+   'correo', 'REQ_DOCUMENTOS_CORREO', 1, 'Resumen ejecutivo y enlace de agendamiento para una reunion de 20 minutos.'),
   ('00000000-0000-4000-8000-000000000313', '00000000-0000-4000-8000-000000000301', 3, 4,
    'linkedin', 'CAD_B2B_D4_LINKEDIN', 1, 'Mensaje corto de valor y solicitud de conexion profesional.'),
   ('00000000-0000-4000-8000-000000000314', '00000000-0000-4000-8000-000000000301', 4, 7,
@@ -317,7 +457,11 @@ values
   ('00000000-0000-4000-8000-000000000315', '00000000-0000-4000-8000-000000000301', 5, 10,
    'correo', 'CAD_B2B_D10_AGENDA', 1, 'Recordatorio formal de agenda con dos horarios concretos.'),
   ('00000000-0000-4000-8000-000000000316', '00000000-0000-4000-8000-000000000301', 6, 14,
-   'whatsapp', 'CAD_B2B_D14_CIERRE', 1, 'Cierre del ciclo y actualizacion del estado del lead.')
+   'whatsapp', 'CAD_B2B_D14_CIERRE', 1, 'Cierre del ciclo y actualizacion del estado del contacto.'),
+  ('00000000-0000-4000-8000-000000000321', '00000000-0000-4000-8000-000000000302', 1, 1,
+   'correo', 'REQ_DOCUMENTOS_CORREO', 1, 'Requerimiento formal de lo que falta en el legajo.'),
+  ('00000000-0000-4000-8000-000000000322', '00000000-0000-4000-8000-000000000302', 2, 4,
+   'whatsapp', 'SEGUIMIENTO_CONSULTA', 1, 'Seguimiento corto si el cliente no respondio el requerimiento.')
 on conflict (id) do update set
   day_number = excluded.day_number,
   channel = excluded.channel,
@@ -325,139 +469,162 @@ on conflict (id) do update set
   template_version = excluded.template_version,
   description = excluded.description;
 
--- Cuatro inscripciones, cada una contando una situacion distinta:
---   E1 activo con un paso vencido sin ejecutar (lo que hay que mandar hoy)
---   E2 convertida, con los seis pasos enviados
---   E3 recien inscripta, con el paso 2 vencido
+-- Cinco inscripciones, cada una contando una situacion distinta:
+--   E1 activa con un paso vencido sin ejecutar (lo que hay que mandar hoy)
+--   E2 finalizada, con los seis pasos enviados
+--   E3 recien inscrita, con el paso 2 vencido
 --   E4 pausada: un paso fallido y el resto cancelado
+--   E5 del viaje V-02, abierta por la senal consumida de Maria Fernanda
 -- started_at se escribe explicitamente porque las fechas de las ejecuciones se derivan de el.
 
-insert into public.cadence_enrollments
-  (id, cadence_template_id, client_id, contact_id, status, started_at, finished_at, final_outcome, created_by)
+insert into public.journey_enrollments
+  (id, journey_id, client_id, contact_id, signal_id, status, started_at, finished_at,
+   final_outcome, created_by)
 values
-  ('00000000-0000-4000-8000-000000000321', '00000000-0000-4000-8000-000000000301',
-   '00000000-0000-4000-8000-0000000000c1', '00000000-0000-4000-8000-0000000001d1',
+  ('00000000-0000-4000-8000-000000000331', '00000000-0000-4000-8000-000000000301',
+   '00000000-0000-4000-8000-0000000000c1', '00000000-0000-4000-8000-0000000001d1', null,
    'activa', now() - interval '6 days', null, null,
    (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo')),
 
-  ('00000000-0000-4000-8000-000000000322', '00000000-0000-4000-8000-000000000301',
-   '00000000-0000-4000-8000-0000000000c2', '00000000-0000-4000-8000-0000000001d3',
-   'convertida', now() - interval '16 days', now() - interval '2 days', 'convertida',
+  ('00000000-0000-4000-8000-000000000332', '00000000-0000-4000-8000-000000000301',
+   '00000000-0000-4000-8000-0000000000c2', '00000000-0000-4000-8000-0000000001d3', null,
+   'finalizada', now() - interval '16 days', now() - interval '2 days', 'ruta_abierta',
    (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo')),
 
-  ('00000000-0000-4000-8000-000000000323', '00000000-0000-4000-8000-000000000301',
-   '00000000-0000-4000-8000-0000000000c3', '00000000-0000-4000-8000-0000000001d5',
+  ('00000000-0000-4000-8000-000000000333', '00000000-0000-4000-8000-000000000301',
+   '00000000-0000-4000-8000-0000000000c3', '00000000-0000-4000-8000-0000000001d5', null,
    'activa', now() - interval '2 days', null, null,
    (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo')),
 
-  ('00000000-0000-4000-8000-000000000324', '00000000-0000-4000-8000-000000000301',
-   '00000000-0000-4000-8000-0000000000c4', '00000000-0000-4000-8000-0000000001d6',
+  ('00000000-0000-4000-8000-000000000334', '00000000-0000-4000-8000-000000000301',
+   '00000000-0000-4000-8000-0000000000c4', '00000000-0000-4000-8000-0000000001d6', null,
    'pausada', now() - interval '12 days', null, 'en_pausa',
-   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'))
+   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo')),
+
+  ('00000000-0000-4000-8000-000000000335', '00000000-0000-4000-8000-000000000302',
+   '00000000-0000-4000-8000-0000000000c6', null,
+   '00000000-0000-4000-8000-000000000406',
+   'activa', now() - interval '2 days', null, null, null)
 
 on conflict (id) do update set
+  signal_id = excluded.signal_id,
   status = excluded.status,
   started_at = excluded.started_at,
   finished_at = excluded.finished_at,
   final_outcome = excluded.final_outcome;
 
 -- Las ejecuciones. scheduled_for = inicio de la inscripcion + (dia del paso - 1) dias, para
--- que la pantalla de cadencias muestre un calendario coherente con started_at.
+-- que la pantalla de viajes muestre un calendario coherente con started_at.
+--
+-- El paso 2 de V-01 usa la plantilla de requerimiento de documentos: en la demostracion el
+-- mismo hilo sirve para pedir la documentacion que falta, que es lo que hace una secuencia B2B
+-- dentro de un CRM de operaciones.
 
-insert into public.cadence_executions
-  (id, enrollment_id, cadence_step_id, scheduled_for, status, attempted_at, sent_at, error)
+insert into public.journey_runs
+  (id, enrollment_id, journey_step_id, signal_id, scheduled_for, status, attempted_at,
+   sent_at, error)
 values
-  -- E1 Comercializadora del Valle: pasos 1 y 2 enviados, el paso 4 (linkedin) vencio sin
-  -- ejecutarse, y los dias 10 y 14 todavia al frente.
-  ('00000000-0000-4000-8000-000000000331', '00000000-0000-4000-8000-000000000321',
-   '00000000-0000-4000-8000-000000000311', now() - interval '6 days', 'enviado',
+  -- E1 Comercializadora del Valle: pasos 1 y 2 enviados, el paso 3 (linkedin) vencio sin
+  -- ejecutarse, y los dias 7, 10 y 14 todavia al frente.
+  ('00000000-0000-4000-8000-000000000341', '00000000-0000-4000-8000-000000000331',
+   '00000000-0000-4000-8000-000000000311', null, now() - interval '6 days', 'enviado',
    now() - interval '6 days', now() - interval '6 days' + interval '20 minutes', null),
-  ('00000000-0000-4000-8000-000000000332', '00000000-0000-4000-8000-000000000321',
-   '00000000-0000-4000-8000-000000000312', now() - interval '5 days', 'enviado',
+  ('00000000-0000-4000-8000-000000000342', '00000000-0000-4000-8000-000000000331',
+   '00000000-0000-4000-8000-000000000312', null, now() - interval '5 days', 'enviado',
    now() - interval '5 days', now() - interval '5 days', null),
-  ('00000000-0000-4000-8000-000000000333', '00000000-0000-4000-8000-000000000321',
-   '00000000-0000-4000-8000-000000000313', now() - interval '3 days', 'pendiente',
+  ('00000000-0000-4000-8000-000000000343', '00000000-0000-4000-8000-000000000331',
+   '00000000-0000-4000-8000-000000000313', null, now() - interval '3 days', 'pendiente',
    null, null, null),
-  ('00000000-0000-4000-8000-000000000334', '00000000-0000-4000-8000-000000000321',
-   '00000000-0000-4000-8000-000000000314', now() + interval '1 day', 'pendiente',
+  ('00000000-0000-4000-8000-000000000344', '00000000-0000-4000-8000-000000000331',
+   '00000000-0000-4000-8000-000000000314', null, now() + interval '1 day', 'pendiente',
    null, null, null),
-  ('00000000-0000-4000-8000-000000000335', '00000000-0000-4000-8000-000000000321',
-   '00000000-0000-4000-8000-000000000315', now() + interval '4 days', 'pendiente',
+  ('00000000-0000-4000-8000-000000000345', '00000000-0000-4000-8000-000000000331',
+   '00000000-0000-4000-8000-000000000315', null, now() + interval '4 days', 'pendiente',
    null, null, null),
-  ('00000000-0000-4000-8000-000000000336', '00000000-0000-4000-8000-000000000321',
-   '00000000-0000-4000-8000-000000000316', now() + interval '8 days', 'pendiente',
+  ('00000000-0000-4000-8000-000000000346', '00000000-0000-4000-8000-000000000331',
+   '00000000-0000-4000-8000-000000000316', null, now() + interval '8 days', 'pendiente',
    null, null, null),
 
-  -- E2 Grupo Andino: los seis pasos enviados; la cuenta se convirtio.
-  ('00000000-0000-4000-8000-000000000341', '00000000-0000-4000-8000-000000000322',
-   '00000000-0000-4000-8000-000000000311', now() - interval '16 days', 'enviado',
+  -- E2 Grupo Andino: los seis pasos enviados y la inscripcion cerrada por el motor.
+  ('00000000-0000-4000-8000-000000000351', '00000000-0000-4000-8000-000000000332',
+   '00000000-0000-4000-8000-000000000311', null, now() - interval '16 days', 'enviado',
    now() - interval '16 days', now() - interval '16 days', null),
-  ('00000000-0000-4000-8000-000000000342', '00000000-0000-4000-8000-000000000322',
-   '00000000-0000-4000-8000-000000000312', now() - interval '15 days', 'enviado',
+  ('00000000-0000-4000-8000-000000000352', '00000000-0000-4000-8000-000000000332',
+   '00000000-0000-4000-8000-000000000312', null, now() - interval '15 days', 'enviado',
    now() - interval '15 days', now() - interval '15 days', null),
-  ('00000000-0000-4000-8000-000000000343', '00000000-0000-4000-8000-000000000322',
-   '00000000-0000-4000-8000-000000000313', now() - interval '13 days', 'enviado',
+  ('00000000-0000-4000-8000-000000000353', '00000000-0000-4000-8000-000000000332',
+   '00000000-0000-4000-8000-000000000313', null, now() - interval '13 days', 'enviado',
    now() - interval '13 days', now() - interval '13 days', null),
-  ('00000000-0000-4000-8000-000000000344', '00000000-0000-4000-8000-000000000322',
-   '00000000-0000-4000-8000-000000000314', now() - interval '10 days', 'enviado',
+  ('00000000-0000-4000-8000-000000000354', '00000000-0000-4000-8000-000000000332',
+   '00000000-0000-4000-8000-000000000314', null, now() - interval '10 days', 'enviado',
    now() - interval '10 days', now() - interval '10 days', null),
-  ('00000000-0000-4000-8000-000000000345', '00000000-0000-4000-8000-000000000322',
-   '00000000-0000-4000-8000-000000000315', now() - interval '7 days', 'enviado',
+  ('00000000-0000-4000-8000-000000000355', '00000000-0000-4000-8000-000000000332',
+   '00000000-0000-4000-8000-000000000315', null, now() - interval '7 days', 'enviado',
    now() - interval '7 days', now() - interval '7 days', null),
-  ('00000000-0000-4000-8000-000000000346', '00000000-0000-4000-8000-000000000322',
-   '00000000-0000-4000-8000-000000000316', now() - interval '3 days', 'enviado',
+  ('00000000-0000-4000-8000-000000000356', '00000000-0000-4000-8000-000000000332',
+   '00000000-0000-4000-8000-000000000316', null, now() - interval '3 days', 'enviado',
    now() - interval '3 days', now() - interval '3 days', null),
 
   -- E3 Importadora Pacifico: solo el dia 1 salio; el dia 2 vencio sin ejecutarse.
-  ('00000000-0000-4000-8000-000000000351', '00000000-0000-4000-8000-000000000323',
-   '00000000-0000-4000-8000-000000000311', now() - interval '2 days', 'enviado',
+  ('00000000-0000-4000-8000-000000000361', '00000000-0000-4000-8000-000000000333',
+   '00000000-0000-4000-8000-000000000311', null, now() - interval '2 days', 'enviado',
    now() - interval '2 days', now() - interval '2 days', null),
-  ('00000000-0000-4000-8000-000000000352', '00000000-0000-4000-8000-000000000323',
-   '00000000-0000-4000-8000-000000000312', now() - interval '1 day', 'pendiente',
+  ('00000000-0000-4000-8000-000000000362', '00000000-0000-4000-8000-000000000333',
+   '00000000-0000-4000-8000-000000000312', null, now() - interval '1 day', 'pendiente',
    null, null, null),
-  ('00000000-0000-4000-8000-000000000353', '00000000-0000-4000-8000-000000000323',
-   '00000000-0000-4000-8000-000000000313', now() + interval '2 days', 'pendiente',
+  ('00000000-0000-4000-8000-000000000363', '00000000-0000-4000-8000-000000000333',
+   '00000000-0000-4000-8000-000000000313', null, now() + interval '2 days', 'pendiente',
    null, null, null),
-  ('00000000-0000-4000-8000-000000000354', '00000000-0000-4000-8000-000000000323',
-   '00000000-0000-4000-8000-000000000314', now() + interval '5 days', 'pendiente',
+  ('00000000-0000-4000-8000-000000000364', '00000000-0000-4000-8000-000000000333',
+   '00000000-0000-4000-8000-000000000314', null, now() + interval '5 days', 'pendiente',
    null, null, null),
-  ('00000000-0000-4000-8000-000000000355', '00000000-0000-4000-8000-000000000323',
-   '00000000-0000-4000-8000-000000000315', now() + interval '8 days', 'pendiente',
+  ('00000000-0000-4000-8000-000000000365', '00000000-0000-4000-8000-000000000333',
+   '00000000-0000-4000-8000-000000000315', null, now() + interval '8 days', 'pendiente',
    null, null, null),
-  ('00000000-0000-4000-8000-000000000356', '00000000-0000-4000-8000-000000000323',
-   '00000000-0000-4000-8000-000000000316', now() + interval '12 days', 'pendiente',
+  ('00000000-0000-4000-8000-000000000366', '00000000-0000-4000-8000-000000000333',
+   '00000000-0000-4000-8000-000000000316', null, now() + interval '12 days', 'pendiente',
    null, null, null),
 
   -- E4 Logistica Mercosur: el paso 2 fallo porque el conector de correo todavia no esta
   -- configurado, y el resto se cancelo al pausar la secuencia. Es el unico caso 'fallido'
   -- del sembrado y deja visible el criterio de construir con interfaz de conector.
-  ('00000000-0000-4000-8000-000000000361', '00000000-0000-4000-8000-000000000324',
-   '00000000-0000-4000-8000-000000000311', now() - interval '12 days', 'enviado',
+  ('00000000-0000-4000-8000-000000000371', '00000000-0000-4000-8000-000000000334',
+   '00000000-0000-4000-8000-000000000311', null, now() - interval '12 days', 'enviado',
    now() - interval '12 days', now() - interval '12 days', null),
-  ('00000000-0000-4000-8000-000000000362', '00000000-0000-4000-8000-000000000324',
-   '00000000-0000-4000-8000-000000000312', now() - interval '11 days', 'fallido',
+  ('00000000-0000-4000-8000-000000000372', '00000000-0000-4000-8000-000000000334',
+   '00000000-0000-4000-8000-000000000312', null, now() - interval '11 days', 'fallido',
    now() - interval '11 days', null,
    'El conector de correo comercial aun no esta configurado en este entorno.'),
-  ('00000000-0000-4000-8000-000000000363', '00000000-0000-4000-8000-000000000324',
-   '00000000-0000-4000-8000-000000000313', now() - interval '9 days', 'omitido',
+  ('00000000-0000-4000-8000-000000000373', '00000000-0000-4000-8000-000000000334',
+   '00000000-0000-4000-8000-000000000313', null, now() - interval '9 days', 'omitido',
    null, null, null),
-  ('00000000-0000-4000-8000-000000000364', '00000000-0000-4000-8000-000000000324',
-   '00000000-0000-4000-8000-000000000314', now() - interval '6 days', 'cancelado',
+  ('00000000-0000-4000-8000-000000000374', '00000000-0000-4000-8000-000000000334',
+   '00000000-0000-4000-8000-000000000314', null, now() - interval '6 days', 'cancelado',
    null, null, null),
-  ('00000000-0000-4000-8000-000000000365', '00000000-0000-4000-8000-000000000324',
-   '00000000-0000-4000-8000-000000000315', now() - interval '3 days', 'cancelado',
+  ('00000000-0000-4000-8000-000000000375', '00000000-0000-4000-8000-000000000334',
+   '00000000-0000-4000-8000-000000000315', null, now() - interval '3 days', 'cancelado',
    null, null, null),
-  ('00000000-0000-4000-8000-000000000366', '00000000-0000-4000-8000-000000000324',
-   '00000000-0000-4000-8000-000000000316', now() + interval '1 day', 'cancelado',
+  ('00000000-0000-4000-8000-000000000376', '00000000-0000-4000-8000-000000000334',
+   '00000000-0000-4000-8000-000000000316', null, now() + interval '1 day', 'cancelado',
+   null, null, null),
+
+  -- E5 Maria Fernanda (V-02): la senal de documento observado abrio la inscripcion y queda
+  -- asientada en la primera ejecucion. El paso 2 todavia no vence.
+  ('00000000-0000-4000-8000-000000000381', '00000000-0000-4000-8000-000000000335',
+   '00000000-0000-4000-8000-000000000321', '00000000-0000-4000-8000-000000000406',
+   now() - interval '2 days', 'enviado', now() - interval '2 days', now() - interval '2 days', null),
+  ('00000000-0000-4000-8000-000000000382', '00000000-0000-4000-8000-000000000335',
+   '00000000-0000-4000-8000-000000000322', null, now() + interval '2 days', 'pendiente',
    null, null, null)
 
 on conflict (id) do update set
+  signal_id = excluded.signal_id,
   scheduled_for = excluded.scheduled_for,
   status = excluded.status,
   attempted_at = excluded.attempted_at,
   sent_at = excluded.sent_at,
   error = excluded.error;
--- ejecuciones-cuatro-inscripciones
+-- ejecuciones-cinco-inscripciones
 
 -- ---------------------------------------------------------------------------
 -- 5. Bandeja unificada: hilos y mensajes
@@ -552,12 +719,12 @@ on conflict (id) do update set
 -- Mensajes. Cada uno lleva external_msg_id, que es la llave que pone el canal: el conector
 -- real la reutiliza y asi un mismo mensaje nunca se guarda dos veces.
 --
--- automated = true exige cadence_execution_id (lo comprueba el disparador
+-- automated = true exige journey_run_id (lo comprueba el disparador
 -- messages_automation_consistency), y un mensaje manual no puede llevarlo.
 
 insert into public.messages
   (id, conversation_id, direction, channel, body, sender_label, template_id, automated,
-   cadence_execution_id, external_msg_id, status, sent_by, sent_at)
+   journey_run_id, external_msg_id, status, sent_by, sent_at)
 values
   -- Hilo 0401: WhatsApp de Comercializadora del Valle, el B2B que recien respondio.
   ('00000000-0000-4000-8000-000000000501', '00000000-0000-4000-8000-000000000401', 'entrante',
@@ -570,7 +737,7 @@ values
    'Hola, Gonzalo. Te contacto de AV Finance, la empresa detrás de Alyto. Estamos invitando a empresas a probar nuestro servicio de transferencias internacionales en el ECP de ASFI. ¿Podemos conversar 20 minutos esta semana para mostrarte cómo optimizar tus pagos al exterior?',
    'Secuencia B2B de Alyto',
    (select t.id from public.templates t where t.code = 'PROSPECTO_B2B' and t.version = 1),
-   true, '00000000-0000-4000-8000-000000000331', 'wamid.demoval0002', 'leido', null,
+   true, '00000000-0000-4000-8000-000000000341', 'wamid.demoval0002', 'leido', null,
    now() - interval '6 days' + interval '20 minutes'),
   ('00000000-0000-4000-8000-000000000503', '00000000-0000-4000-8000-000000000401', 'entrante',
    'whatsapp',
@@ -595,7 +762,7 @@ values
    'Hola, Gonzalo. Como conversamos, te adjunto el resumen ejecutivo de nuestro servicio de transferencias internacionales para empresas. El enlace de agendamiento esta al final: una reunion de 20 minutos para revisar tus pagos al exterior dentro del ECP de ASFI. https://alyto.io/agendar',
    'Secuencia B2B de Alyto',
    (select t.id from public.templates t where t.code = 'CAD_B2B_D2_CORREO' and t.version = 1),
-   true, '00000000-0000-4000-8000-000000000332', 'message-id-valle-0006', 'enviado', null,
+   true, '00000000-0000-4000-8000-000000000342', 'message-id-valle-0006', 'enviado', null,
    now() - interval '5 days'),
   ('00000000-0000-4000-8000-000000000507', '00000000-0000-4000-8000-000000000402', 'entrante',
    'correo',
@@ -628,7 +795,7 @@ values
    'Hola, Marcela. Te contacto de AV Finance, la empresa detrás de Alyto. Estamos invitando a empresas a probar nuestro servicio de transferencias internacionales en el ECP de ASFI. ¿Podemos conversar 20 minutos esta semana para mostrarte cómo optimizar tus pagos al exterior?',
    'Secuencia B2B de Alyto',
    (select t.id from public.templates t where t.code = 'PROSPECTO_B2B' and t.version = 1),
-   true, '00000000-0000-4000-8000-000000000341', 'wamid.demoand0001', 'leido', null,
+   true, '00000000-0000-4000-8000-000000000351', 'wamid.demoand0001', 'leido', null,
    now() - interval '16 days'),
   ('00000000-0000-4000-8000-000000000512', '00000000-0000-4000-8000-000000000403', 'entrante',
    'whatsapp',
@@ -646,14 +813,14 @@ values
    'Hola, Marcela. Te dejo el video corto de como se opera en Alyto dentro del ECP: captura de la solicitud, validacion de datos y confirmacion. https://alyto.io/material. Si preferis, lo vemos en la reunion.',
    'Secuencia B2B de Alyto',
    (select t.id from public.templates t where t.code = 'CAD_B2B_D7_MATERIAL' and t.version = 1),
-   true, '00000000-0000-4000-8000-000000000344', 'wamid.demoand0004', 'leido', null,
+   true, '00000000-0000-4000-8000-000000000354', 'wamid.demoand0004', 'leido', null,
    now() - interval '10 days'),
   ('00000000-0000-4000-8000-000000000515', '00000000-0000-4000-8000-000000000403', 'saliente',
    'whatsapp',
    'Hola, Marcela. Cerramos el ciclo de contacto iniciado hace dos semanas. Dejamos la cuenta en pausa y el equipo queda disponible cuando retomen la evaluacion de pagos al exterior. Saludos desde Alyto.',
    'Secuencia B2B de Alyto',
    (select t.id from public.templates t where t.code = 'CAD_B2B_D14_CIERRE' and t.version = 1),
-   true, '00000000-0000-4000-8000-000000000346', 'wamid.demoand0005', 'entregado', null,
+   true, '00000000-0000-4000-8000-000000000356', 'wamid.demoand0005', 'entregado', null,
    now() - interval '3 days'),
   ('00000000-0000-4000-8000-000000000516', '00000000-0000-4000-8000-000000000403', 'entrante',
    'whatsapp',
@@ -746,7 +913,7 @@ values
    'Hola, Marcela. Comparto un dato corto: las empresas que pagan proveedores al exterior concentran su costo en los tiempos de confirmacion, no en la comision. Alyto trabaja ese punto dentro del ECP de ASFI. Te envio la solicitud de conexion para seguir por aqui.',
    'Secuencia B2B de Alyto',
    (select t.id from public.templates t where t.code = 'CAD_B2B_D4_LINKEDIN' and t.version = 1),
-   true, '00000000-0000-4000-8000-000000000343', 'linkedin-andino-0001-msg1', 'entregado', null,
+   true, '00000000-0000-4000-8000-000000000353', 'linkedin-andino-0001-msg1', 'entregado', null,
    now() - interval '13 days'),
   ('00000000-0000-4000-8000-000000000530', '00000000-0000-4000-8000-000000000407', 'entrante',
    'linkedin',
@@ -760,7 +927,7 @@ values
    'Hola, Paola. Te contacto de AV Finance, la empresa detrás de Alyto. Estamos invitando a empresas a probar nuestro servicio de transferencias internacionales en el ECP de ASFI. ¿Podemos conversar 20 minutos esta semana para mostrarte cómo optimizar tus pagos al exterior?',
    'Secuencia B2B de Alyto',
    (select t.id from public.templates t where t.code = 'PROSPECTO_B2B' and t.version = 1),
-   true, '00000000-0000-4000-8000-000000000361', 'wamid.demomer0001', 'leido', null,
+   true, '00000000-0000-4000-8000-000000000371', 'wamid.demomer0001', 'leido', null,
    now() - interval '12 days'),
   ('00000000-0000-4000-8000-000000000532', '00000000-0000-4000-8000-000000000408', 'entrante',
    'whatsapp',
@@ -775,10 +942,12 @@ values
 
   -- Hilo 0409: nota interna. Es el unico canal que no pasa por el filtro de lenguaje porque
   -- no se envia a nadie: lo excluye la clausula when del disparador messages_language_guard.
+  -- Su estado es 'enviado' y no 'entregado': una nota no sale a ningun proveedor de canal, asi
+  -- que no tiene entrega que confirmar.
   ('00000000-0000-4000-8000-000000000534', '00000000-0000-4000-8000-000000000409', 'saliente',
    'interno',
    'Llamada de seguimiento: la clienta confirmo que subio la cedula y el formulario de origen de fondos. Falta revisar el perfil de riesgo antes de habilitar la primera operacion.',
-   'Soporte Alyto', null, false, null, null, 'recibido',
+   'Soporte Alyto', null, false, null, null, 'enviado',
    (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
    now() - interval '3 days'),
 
@@ -802,7 +971,7 @@ values
    'Hola, Marcela. Como conversamos, te adjunto el resumen ejecutivo de nuestro servicio de transferencias internacionales para empresas. El enlace de agendamiento esta al final: una reunion de 20 minutos para revisar tus pagos al exterior dentro del ECP de ASFI. https://alyto.io/agendar',
    'Secuencia B2B de Alyto',
    (select t.id from public.templates t where t.code = 'CAD_B2B_D2_CORREO' and t.version = 1),
-   true, '00000000-0000-4000-8000-000000000342', 'message-id-and0002', 'leido', null,
+   true, '00000000-0000-4000-8000-000000000352', 'message-id-and0002', 'leido', null,
    now() - interval '15 days'),
   ('00000000-0000-4000-8000-000000000538', '00000000-0000-4000-8000-000000000412', 'entrante',
    'correo',
@@ -814,7 +983,7 @@ values
    'Hola, Marcela. Te proponemos dos horarios concretos para la reunion de 20 minutos: miercoles 10:00 o jueves 15:30. Si ninguno funciona, indicanos uno y lo confirmamos por este medio.',
    'Secuencia B2B de Alyto',
    (select t.id from public.templates t where t.code = 'CAD_B2B_D10_AGENDA' and t.version = 1),
-   true, '00000000-0000-4000-8000-000000000345', 'message-id-and0004', 'enviado', null,
+   true, '00000000-0000-4000-8000-000000000355', 'message-id-and0004', 'enviado', null,
    now() - interval '7 days'),
 
   -- Hilo 0413: WhatsApp de una persona natural con el registro a medias. El saliente usa
@@ -915,7 +1084,7 @@ where h.conversation_id = c.id;
 -- ---------------------------------------------------------------------------
 
 -- Primero los documentos y despues los estados de las casillas. El orden no es capricho: el
--- disparador compliance_items_need_document rechaza una casilla que pase a Aprobado sin un
+-- disparador document_reviews_need_document rechaza una casilla que pase a Aprobado sin un
 -- documento aprobado encima, asi que invertirlo haria fallar el sembrado.
 --
 -- La tabla guarda metadatos. El archivo fisico no se sube aqui: tiene que entrar por la
@@ -923,7 +1092,7 @@ where h.conversation_id = c.id;
 -- la sensacion de un documento que no existe. checksum queda vacio por la misma razon.
 
 insert into public.documents
-  (id, client_id, checklist_item_key, filename, storage_bucket, storage_path, mime_type,
+  (id, client_id, requirement_code, filename, storage_bucket, storage_path, mime_type,
    size_bytes, review_status, expires_on, uploaded_by, reviewed_by, reviewed_at)
 values
   ('00000000-0000-4000-8000-000000000901', '00000000-0000-4000-8000-0000000000c1', 'identidad',
@@ -953,7 +1122,7 @@ on conflict (id) do update set
   reviewed_at = excluded.reviewed_at;
 
 insert into public.documents
-  (id, client_id, checklist_item_key, filename, storage_bucket, storage_path, mime_type,
+  (id, client_id, requirement_code, filename, storage_bucket, storage_path, mime_type,
    size_bytes, review_status, expires_on, uploaded_by, reviewed_by, reviewed_at)
 values
   ('00000000-0000-4000-8000-000000000904', '00000000-0000-4000-8000-0000000000c2', 'identidad',
@@ -998,7 +1167,7 @@ on conflict (id) do update set
 -- documento-andino-fin
 
 insert into public.documents
-  (id, client_id, checklist_item_key, filename, storage_bucket, storage_path, mime_type,
+  (id, client_id, requirement_code, filename, storage_bucket, storage_path, mime_type,
    size_bytes, review_status, expires_on, uploaded_by, reviewed_by, reviewed_at)
 values
   -- Importadora Pacifico: identidad y poder ya revisados; falta el beneficiario final, que es
@@ -1011,7 +1180,7 @@ values
 
   ('00000000-0000-4000-8000-00000000090a', '00000000-0000-4000-8000-0000000000c3', 'representacion',
    'poder-notarial.pdf', 'expedientes', 'demo/pacifico/representacion.pdf', 'application/pdf',
-   615000, 'Aprobado', current_date + 90,
+   615000, 'Aprobado', current_date + 12,
    (select p.id from public.profiles p where p.email = 'operaciones@avfinance.bo'),
    (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'), now() - interval '8 days'),
 
@@ -1037,9 +1206,9 @@ values
   -- Personas naturales: cinco casillas por cuenta, de las cuales dos piden documento.
   ('00000000-0000-4000-8000-00000000090e', '00000000-0000-4000-8000-0000000000c6', 'identidad',
    'cedula.pdf', 'expedientes', 'demo/quispe/identidad.pdf', 'application/pdf',
-   143000, 'Aprobado', current_date + 900,
+   143000, 'Observado', current_date + 15,
    (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
-   (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'), now() - interval '18 days'),
+   (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'), now() - interval '2 days'),
 
   ('00000000-0000-4000-8000-00000000090f', '00000000-0000-4000-8000-0000000000c6', 'origen_fondos',
    'declaracion-origen.pdf', 'expedientes', 'demo/quispe/origen-fondos.pdf', 'application/pdf',
@@ -1062,11 +1231,11 @@ on conflict (id) do update set
   reviewed_at = excluded.reviewed_at;
 -- documentos-naturales-fin
 
--- Las casillas las creo el disparador clients_compliance_template al insertar cada cuenta:
+-- Los requisitos los creo el disparador clients_document_reviews_template al insertar cada
 -- ocho para las personas juridicas y cinco para las naturales. Se vuelven a Pendiente y despues
 -- se escribe el estado de la demostracion, para que correr el archivo dos veces deje el mismo
 -- resultado.
-update public.compliance_items
+update public.document_reviews
 set status = 'Pendiente'::public.kyc_status,
     detail = null,
     reviewed_by = null,
@@ -1082,7 +1251,7 @@ where client_id in (
 
 -- Estado del legajo de las tres cuentas juridicas con trabajo abierto. Las casillas que
 -- quedan fuera de esta lista siguen en Pendiente, que es como empieza una cuenta real.
-update public.compliance_items as ci
+update public.document_reviews as ci
 set status = v.status::public.kyc_status,
     detail = v.detail,
     reviewed_by = (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'),
@@ -1119,11 +1288,11 @@ from (values
    'Poder recibido por correo.', 8),
   ('00000000-0000-4000-8000-0000000000c3', 'listas_restrictivas', 'En revision',
    'Cotejo en curso: aparece un nombre parecido, hay que descartar.', 1)
-) as v(client_id, item_key, status, detail, hace_dias)
-where ci.client_id = v.client_id and ci.item_key = v.item_key;
+) as v(client_id, requirement_code, status, detail, hace_dias)
+where ci.client_id = v.client_id and ci.requirement_code = v.requirement_code;
 -- casillas-juridicas-avanzadas
 
-update public.compliance_items as ci
+update public.document_reviews as ci
 set status = v.status::public.kyc_status,
     detail = v.detail,
     reviewed_by = (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'),
@@ -1136,14 +1305,15 @@ from (values
 
   ('00000000-0000-4000-8000-0000000000c5', 'identidad', 'Aprobado', 'Cedula vigente.', 20),
   ('00000000-0000-4000-8000-0000000000c5', 'tributario', 'Aprobado', 'Constancia del NIT al dia.', 20),
-  ('00000000-0000-4000-8000-0000000000c5', 'origen_fondos', 'En revision',
-   'Falta el respaldo del ultimo periodo.', 3),
+  ('00000000-0000-4000-8000-0000000000c5', 'origen_fondos', 'Observado',
+   'El respaldo no aclara el origen del ultimo envio.', 3),
   ('00000000-0000-4000-8000-0000000000c5', 'listas_restrictivas', 'Aprobado',
    'Cotejo sin coincidencia.', 20),
 
-  -- Maria Fernanda: legajo de persona natural completo salvo la aceptacion de condiciones.
-  ('00000000-0000-4000-8000-0000000000c6', 'identidad', 'Aprobado',
-   'Cedula leida del respaldo subido por el chat de la app.', 18),
+  -- Maria Fernanda: la cedula queda observada por vencimiento. Es la senal que abrio el
+  -- viaje V-02 de requerimiento de documentos.
+  ('00000000-0000-4000-8000-0000000000c6', 'identidad', 'Observado',
+   'La cedula vence en quince dias; se pidio la vigente.', 2),
   ('00000000-0000-4000-8000-0000000000c6', 'origen_fondos', 'Aprobado',
    'Declaracion jurada simple.', 18),
   ('00000000-0000-4000-8000-0000000000c6', 'listas_restrictivas', 'Aprobado',
@@ -1161,8 +1331,8 @@ from (values
 
   ('00000000-0000-4000-8000-0000000000c9', 'listas_restrictivas', 'Aprobado',
    'Cotejo sin coincidencia.', 6)
-) as v(client_id, item_key, status, detail, hace_dias)
-where ci.client_id = v.client_id and ci.item_key = v.item_key;
+) as v(client_id, requirement_code, status, detail, hace_dias)
+where ci.client_id = v.client_id and ci.requirement_code = v.requirement_code;
 
 -- Cotejo en listas restrictivas. El resultado es texto cerrado ('sin coincidencia',
 -- 'revisar', 'coincidencia'), no un numero: un cero sin contexto no significa lo mismo en
@@ -1198,119 +1368,238 @@ on conflict (id) do update set
 -- casillas-naturales-fin
 
 -- ---------------------------------------------------------------------------
--- 7. Ruta B: embudo comercial B2B
+-- 7. Las tres rutas que cada cuenta mueve en paralelo
 -- ---------------------------------------------------------------------------
 
--- monthly_volume es una estimacion mensual de la cuenta, en dolares, y no una operacion: el
--- tope por operacion del ECP (Bs 120.000) lo administra la plataforma de pagos y solo se
--- recuerda aqui a traves de ecp_parameters. Ningun valor de este archivo representa una
--- transferencia real.
+-- Ruta A documentacion, ruta B comercial B2B y ruta C riesgo y cupos del Entorno Controlado de
+-- Pruebas. No es un embudo: las tres avanzan a la vez sobre la misma cuenta, cada una con su
+-- estado propio, y el cierre de una no cierra las otras dos.
+--
+-- El estado final se aplica con un UPDATE y no en el INSERT. La razon es el disparador
+-- routes_event_insert: el asiento de apertura siempre se escribe, pero el de movimiento solo
+-- corre cuando el estado cambia de verdad. Insertar directamente en 'cerrada' dejaria una ruta
+-- cerrada sin historial.
+--
+-- monthly_volume_bs es una estimacion mensual de la cuenta, en bolivianos, y no una operacion. El
+-- tope por operacion del ECP (Bs 120.000) lo administra la plataforma de pagos y solo se recuerda
+-- aqui a traves de ecp_parameters. Ningun valor de este archivo es una transferencia real.
 
-insert into public.deals
-  (id, code, client_id, stage, deal_type, frequency, monthly_volume, next_step,
-   expected_close_on, lost_reason, owner_id, created_at)
+insert into public.routes
+  (id, code, client_id, kind, owner_id, opened_at, operation_type, frequency,
+   monthly_volume_bs, next_step)
 values
-  ('00000000-0000-4000-8000-000000000601', 'B2B-0001',
-   '00000000-0000-4000-8000-0000000000c1', 2, 'Transferencia Institucional B2B', 'Quincenal',
-   18500, 'Reunion de 20 minutos jueves 10:00', current_date + 21, null,
-   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'), now() - interval '6 days'),
+  -- Ruta A: legajo y documentacion.
+  ('00000000-0000-4000-8000-000000000611', 'RTA-0001',
+   '00000000-0000-4000-8000-0000000000c1', 'documentacion',
+   (select p.id from public.profiles p where p.email = 'operaciones@avfinance.bo'),
+   now() - interval '26 days', null::text, null::text, null::numeric, null::text),
 
-  ('00000000-0000-4000-8000-000000000602', 'B2B-0002',
-   '00000000-0000-4000-8000-0000000000c2', 6, 'Transferencia Institucional B2B', 'Mensual',
-   42000, 'Acompanar la primera operacion y coordinar la recurrencia', current_date - 2, null,
-   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'), now() - interval '16 days'),
+  ('00000000-0000-4000-8000-000000000612', 'RTA-0002',
+   '00000000-0000-4000-8000-0000000000c2', 'documentacion',
+   (select p.id from public.profiles p where p.email = 'operaciones@avfinance.bo'),
+   now() - interval '34 days', null, null, null, null),
 
-  ('00000000-0000-4000-8000-000000000603', 'B2B-0003',
-   '00000000-0000-4000-8000-0000000000c3', 3, 'Transferencia Institucional B2B', 'Por definir',
-   12000, 'Enviar el resumen ejecutivo con el legajo abierto', current_date + 30, null,
-   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'), now() - interval '2 days'),
+  ('00000000-0000-4000-8000-000000000613', 'RTA-0003',
+   '00000000-0000-4000-8000-0000000000c3', 'documentacion',
+   (select p.id from public.profiles p where p.email = 'operaciones@avfinance.bo'),
+   now() - interval '21 days', null, null, null, null),
 
-  ('00000000-0000-4000-8000-000000000604', 'B2B-0004',
-   '00000000-0000-4000-8000-0000000000c4', 6, 'Transferencia Institucional B2B', 'Por definir',
-   0, null, current_date - 7, 'sin_presupuesto',
-   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'), now() - interval '12 days'),
+  ('00000000-0000-4000-8000-000000000614', 'RTA-0004',
+   '00000000-0000-4000-8000-0000000000c4', 'documentacion',
+   (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
+   now() - interval '15 days', null, null, null, null),
 
-  ('00000000-0000-4000-8000-000000000605', 'B2B-0005',
-   '00000000-0000-4000-8000-0000000000c5', 5, 'Transferencia Institucional B2B', 'Quincenal',
-   55000, 'Cotizacion de transferencia ajustada al volumen real', current_date + 9, null,
-   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'), now() - interval '30 days')
+  ('00000000-0000-4000-8000-000000000615', 'RTA-0005',
+   '00000000-0000-4000-8000-0000000000c5', 'documentacion',
+   (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'),
+   now() - interval '11 days', null, null, null, null),
+
+  ('00000000-0000-4000-8000-000000000616', 'RTA-0006',
+   '00000000-0000-4000-8000-0000000000c6', 'documentacion',
+   (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
+   now() - interval '24 days', null, null, null, null),
+
+  ('00000000-0000-4000-8000-000000000617', 'RTA-0007',
+   '00000000-0000-4000-8000-0000000000c7', 'documentacion',
+   (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
+   now() - interval '7 days', null, null, null, null),
+
+  -- Sin ningun movimiento todavia: es la unica ruta que queda en 'abierta' de la ruta A y
+  -- demuestra el estado inicial real, no un estado decorativo.
+  ('00000000-0000-4000-8000-000000000618', 'RTA-0008',
+   '00000000-0000-4000-8000-0000000000c8', 'documentacion',
+   (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
+   now() - interval '4 hours', null, null, null, null),
+
+  ('00000000-0000-4000-8000-000000000619', 'RTA-0009',
+   '00000000-0000-4000-8000-0000000000c9', 'documentacion',
+   (select p.id from public.profiles p where p.email = 'soporte@avfinance.bo'),
+   now() - interval '18 days', null, null, null, null),
+
+  -- Ruta B: comercial B2B. Es el unico tipo de ruta que lleva volumen, frecuencia y paso
+  -- siguiente; la restriccion routes_detalle_solo_comercial lo exige asi.
+  ('00000000-0000-4000-8000-000000000621', 'RTB-0001',
+   '00000000-0000-4000-8000-0000000000c1', 'comercial',
+   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'),
+   now() - interval '6 days', 'Transferencia internacional B2B', 'Quincenal',
+   1250000.00, 'Reunion de 20 minutos para repasar el calendario de pagos al exterior'),
+
+  ('00000000-0000-4000-8000-000000000622', 'RTB-0002',
+   '00000000-0000-4000-8000-0000000000c2', 'comercial',
+   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'),
+   now() - interval '16 days', 'Transferencia internacional B2B', 'Mensual',
+   2800000.00, 'Acompanar la primera operacion y coordinar la recurrencia'),
+
+  ('00000000-0000-4000-8000-000000000623', 'RTB-0003',
+   '00000000-0000-4000-8000-0000000000c3', 'comercial',
+   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'),
+   now() - interval '9 days', 'Transferencia internacional B2B', 'Por definir',
+   800000.00, 'Enviar el resumen ejecutivo cuando se cierre la constancia del beneficiario final'),
+
+  ('00000000-0000-4000-8000-000000000624', 'RTB-0004',
+   '00000000-0000-4000-8000-0000000000c4', 'comercial',
+   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'),
+   now() - interval '22 days', 'Transferencia internacional B2B', 'Por definir',
+   0.00, null),
+
+  ('00000000-0000-4000-8000-000000000625', 'RTB-0005',
+   '00000000-0000-4000-8000-0000000000c5', 'comercial',
+   (select p.id from public.profiles p where p.email = 'ventas@avfinance.bo'),
+   now() - interval '30 days', 'Transferencia internacional B2B', 'Mensual',
+   3500000.00, 'Cotizacion de transferencias ajustada al volumen real'),
+
+  -- Ruta C: riesgo y condiciones del ECP. Ficha y alerta, sin detalle comercial.
+  ('00000000-0000-4000-8000-000000000631', 'RTC-0001',
+   '00000000-0000-4000-8000-0000000000c1', 'riesgo',
+   (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'),
+   now() - interval '5 days', null, null, null, null),
+
+  ('00000000-0000-4000-8000-000000000632', 'RTC-0002',
+   '00000000-0000-4000-8000-0000000000c3', 'riesgo',
+   (select p.id from public.profiles p where p.email = 'operaciones@avfinance.bo'),
+   now() - interval '8 days', null, null, null, null),
+
+  ('00000000-0000-4000-8000-000000000633', 'RTC-0003',
+   '00000000-0000-4000-8000-0000000000c4', 'riesgo',
+   (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'),
+   now() - interval '7 days', null, null, null, null),
+
+  ('00000000-0000-4000-8000-000000000634', 'RTC-0004',
+   '00000000-0000-4000-8000-0000000000c7', 'riesgo',
+   (select p.id from public.profiles p where p.email = 'operaciones@avfinance.bo'),
+   now() - interval '7 days', null, null, null, null),
+
+  ('00000000-0000-4000-8000-000000000635', 'RTC-0005',
+   '00000000-0000-4000-8000-0000000000c5', 'riesgo',
+   (select p.id from public.profiles p where p.email = 'compliance@avfinance.bo'),
+   now() - interval '3 days', null, null, null, null)
 on conflict (id) do update set
-  stage = excluded.stage,
+  code = excluded.code,
+  client_id = excluded.client_id,
+  kind = excluded.kind,
+  owner_id = excluded.owner_id,
+  opened_at = excluded.opened_at,
+  operation_type = excluded.operation_type,
   frequency = excluded.frequency,
-  monthly_volume = excluded.monthly_volume,
-  next_step = excluded.next_step,
-  expected_close_on = excluded.expected_close_on,
-  lost_reason = excluded.lost_reason,
-  owner_id = excluded.owner_id;
--- Embudo: dos cuentas recien contactadas, una en negociacion, una ganada y una cerrada sin presupuesto.
+  monthly_volume_bs = excluded.monthly_volume_bs,
+  next_step = excluded.next_step;
+-- Sin estado en la lista de conflicto: correr el sembrado dos veces no debe devolver una ruta
+-- ya movida a su estado inicial, porque eso escribira un asiento falso en el historial.
 
--- Historial del embudo. deal_events la mantiene el disparador deals_stage_change cuando un
--- usuario mueve una tarjeta, y el disparador deal_events_no_direct_write rechaza cualquier
--- escritura que no lleve la marca crm.system_write. Por eso el bloque la pone antes de
--- insertar: es la misma convencion que usara el repositorio cuando el backend escriba.
+-- Cada movimiento de estado, con su motivo. Son 17 porque las dos rutas que quedan en 'abierta'
+-- (RTA-0008 y RTC-0004) todavia no se movieron.
 do $$
 declare
-  asiento record;
+  movimiento record;
 begin
+  -- El disparador pone la marca por si mismo, pero esta escritura directa del created_at la
+  -- necesita igual: route_events rechaza todo lo que no llegue marcado por el sistema.
   perform set_config('crm.system_write', 'on', true);
 
-  for asiento in
-    select v.* from (values
-      ('00000000-0000-4000-8000-000000000601'::uuid, null::smallint, 1::smallint,
-       (now() - interval '6 days')::timestamptz, 'ventas@avfinance.bo'::text),
-      ('00000000-0000-4000-8000-000000000601', null, 2,
-       (now() - interval '1 day')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000602', null, 1,
-       (now() - interval '16 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000602', 1, 2,
-       (now() - interval '13 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000602', 2, 3,
-       (now() - interval '11 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000602', 3, 4,
-       (now() - interval '8 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000602', 4, 5,
-       (now() - interval '5 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000602', 5, 6,
-       (now() - interval '2 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000603', null, 1,
-       (now() - interval '2 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000604', null, 1,
-       (now() - interval '12 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000604', 1, 2,
-       (now() - interval '10 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000604', 2, 6,
-       (now() - interval '7 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000605', null, 1,
-       (now() - interval '30 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000605', 1, 2,
-       (now() - interval '26 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000605', 2, 3,
-       (now() - interval '20 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000605', 3, 4,
-       (now() - interval '14 days')::timestamptz, 'ventas@avfinance.bo'),
-      ('00000000-0000-4000-8000-000000000605', 4, 5,
-       (now() - interval '6 days')::timestamptz, 'ventas@avfinance.bo')
-    ) as v(deal_id, from_stage, to_stage, momento, actor_email)
+  for movimiento in
+    select v.id::uuid as ruta_id,
+           v.estado::public.route_estado as estado,
+           v.momento::timestamptz as momento,
+           v.motivo::text as motivo
+    from (values
+      ('00000000-0000-4000-8000-000000000611'::uuid, 'cerrada',
+       (now() - interval '8 days')::timestamptz,
+       'Los ocho documentos del legajo quedaron aprobados'),
+      ('00000000-0000-4000-8000-000000000612', 'cerrada',
+       (now() - interval '16 days'),
+       'Legajo completo antes de la primera solicitud'),
+      ('00000000-0000-4000-8000-000000000613', 'bloqueada',
+       (now() - interval '4 days'),
+       'Falta la constancia del beneficiario final'),
+      ('00000000-0000-4000-8000-000000000614', 'en_espera_cliente',
+       (now() - interval '2 days'),
+       'Se pidio la cedula vigente; se espera el archivo del cliente'),
+      ('00000000-0000-4000-8000-000000000615', 'en_curso',
+       (now() - interval '30 minutes'),
+       'El formulario de origen de fondos quedo observado'),
+      ('00000000-0000-4000-8000-000000000616', 'cerrada_sin_resultado',
+       (now() - interval '6 days'),
+       'La clienta pidio el cierre de cuenta y la baja de datos'),
+      ('00000000-0000-4000-8000-000000000617', 'en_espera_cliente',
+       (now() - interval '20 hours'),
+       'Pendiente el respaldo de origen de fondos'),
+      ('00000000-0000-4000-8000-000000000619', 'cerrada',
+       (now() - interval '9 days'),
+       'Cuenta de uso personal con legajo completo'),
+      ('00000000-0000-4000-8000-000000000621', 'en_curso',
+       (now() - interval '1 day'),
+       'El cliente confirmo el volumen estimado y pidio la reunion'),
+      ('00000000-0000-4000-8000-000000000622', 'cerrada',
+       (now() - interval '2 days'),
+       'Vinculacion completada: la cuenta ya opera en el entorno de pruebas'),
+      ('00000000-0000-4000-8000-000000000623', 'en_espera_cliente',
+       (now() - interval '5 days'),
+       'La propuesta queda en espera hasta cerrar la documentacion'),
+      ('00000000-0000-4000-8000-000000000624', 'cerrada_sin_resultado',
+       (now() - interval '7 days'),
+       'Sin presupuesto aprobado este semestre; se retoma en tres meses'),
+      ('00000000-0000-4000-8000-000000000625', 'en_curso',
+       (now() - interval '6 hours'),
+       'La gerencia financiera confirmo el volumen real'),
+      ('00000000-0000-4000-8000-000000000631', 'en_curso',
+       (now() - interval '2 days'),
+       'Volumen declarado por encima del promedio del entorno'),
+      ('00000000-0000-4000-8000-000000000632', 'bloqueada',
+       (now() - interval '1 day'),
+       'No se da de alta hasta cerrar el reclamo y el beneficiario final'),
+      ('00000000-0000-4000-8000-000000000633', 'en_curso',
+       (now() - interval '3 days'),
+       'Usuario suspendido por documento de identidad observado'),
+      ('00000000-0000-4000-8000-000000000635', 'en_espera_cliente',
+       (now() - interval '40 hours'),
+       'Se espera el formulario corregido de origen de fondos')
+    ) as v(id, estado, momento, motivo)
   loop
-    -- Sin esta traba, correr el sembrado dos veces duplicaria el historial: la tabla no
-    -- tiene una llave natural que el on conflict pueda usar.
-    if not exists (
-      select 1 from public.deal_events e
-      where e.deal_id = asiento.deal_id
-        and e.to_stage = asiento.to_stage
-        and e.from_stage is not distinct from asiento.from_stage
-    ) then
-      insert into public.deal_events (deal_id, from_stage, to_stage, actor_id, actor_email, created_at)
-      values (
-        asiento.deal_id, asiento.from_stage, asiento.to_stage,
-        (select p.id from public.profiles p where p.email = asiento.actor_email),
-        asiento.actor_email, asiento.momento
-      );
-    end if;
+    update public.routes r
+       set estado = movimiento.estado,
+           motivo = movimiento.motivo,
+           closed_at = case
+                         when movimiento.estado in ('cerrada', 'cerrada_sin_resultado')
+                         then movimiento.momento
+                       end
+     where r.id = movimiento.ruta_id;
+
+    -- El motivo ya vino solo: el disparador lo copia de la ruta al asiento en la misma movida.
+    -- Aca queda atrasarle la fecha, que es lo que el disparador no puede saber.
+    update public.route_events e
+       set created_at = movimiento.momento
+     where e.route_id = movimiento.ruta_id
+       and e.from_estado is not null;
   end loop;
+
+  -- El asiento de apertura lleva la fecha de apertura, no la del sembrado: si no, las 19 rutas
+  -- partirian del mismo minuto y el tablero de antiguedad no mediria nada.
+  update public.route_events e
+     set created_at = (select r.opened_at from public.routes r where r.id = e.route_id)
+   where e.from_estado is null;
 end;
 $$;
--- historial-embudo-listo
+-- rutas-tres-hilos-listas
 
 -- ---------------------------------------------------------------------------
 -- 8. Agenda del equipo y etiquetas
@@ -1320,13 +1609,13 @@ $$;
 -- ese rol: el join lateral elimina la fila en lugar de fallar. Por eso el encabezado pide
 -- volver a correr este archivo despues de dar de alta los cinco usuarios de Auth.
 insert into public.activities
-  (id, client_id, deal_id, conversation_id, type, title, body, due_at, done_at,
+  (id, client_id, route_id, conversation_id, type, title, body, due_at, done_at,
    duration_minutes, owner_id, participants, created_by, created_at)
-select v.id, v.client_id, d.id, v.conversation_id, v.type::public.activity_type, v.title, v.body,
+select v.id, v.client_id, r.id, v.conversation_id, v.type::public.activity_type, v.title, v.body,
        v.due_at, v.done_at, v.duration_minutes, o.id, array[o.id], o.id, v.created_at
 from (values
   ('00000000-0000-4000-8000-000000000701'::uuid,
-   '00000000-0000-4000-8000-0000000000c1'::uuid, 'B2B-0001'::text,
+   '00000000-0000-4000-8000-0000000000c1'::uuid, 'RTB-0001'::text,
    '00000000-0000-4000-8000-000000000401'::uuid, 'reunion'::text,
    'Reunion de presentacion de 20 minutos',
    'Repasar el volumen mensual estimado y el calendario de pagos al exterior.',
@@ -1334,7 +1623,7 @@ from (values
    'ventas'::text, (now() - interval '5 days')::timestamptz),
 
   ('00000000-0000-4000-8000-000000000702',
-   '00000000-0000-4000-8000-0000000000c4', 'B2B-0004',
+   '00000000-0000-4000-8000-0000000000c4', 'RTB-0004',
    '00000000-0000-4000-8000-000000000408', 'tarea',
    'Reactivar la propuesta cuando aprueben el presupuesto',
    'La cuenta quedo en pausa por falta de presupuesto; hay que volver en tres meses.',
@@ -1342,15 +1631,15 @@ from (values
    'ventas', (now() - interval '3 days')::timestamptz),
 
   ('00000000-0000-4000-8000-000000000703',
-   '00000000-0000-4000-8000-0000000000c3', 'B2B-0003',
+   '00000000-0000-4000-8000-0000000000c3', 'RTA-0003',
    '00000000-0000-4000-8000-000000000404', 'tarea',
    'Solicitar la constancia del beneficiario final',
-   'Es la casilla que bloquea la vinculacion y el motivo del reclamo abierto.',
+   'Es el documento que bloquea la ruta A y el motivo del reclamo abierto.',
    (now() - interval '1 day')::timestamptz, null, null,
    'operaciones', (now() - interval '8 days')::timestamptz),
 
   ('00000000-0000-4000-8000-000000000704',
-   '00000000-0000-4000-8000-0000000000c6', null,
+   '00000000-0000-4000-8000-0000000000c6', 'RTA-0006',
    '00000000-0000-4000-8000-000000000409', 'nota',
    'Llamada de seguimiento del registro',
    'Confirmo que subio la cedula y el formulario de origen de fondos.',
@@ -1358,29 +1647,37 @@ from (values
    'soporte', (now() - interval '3 days')::timestamptz),
 
   ('00000000-0000-4000-8000-000000000705',
-   '00000000-0000-4000-8000-0000000000c2', 'B2B-0002', null, 'reunion',
+   '00000000-0000-4000-8000-0000000000c2', 'RTB-0002', null, 'reunion',
    'Capacitacion de operaciones para la primera transferencia',
    'Se reviso con el cliente el ingreso de la solicitud y el aviso de confirmacion.',
    null, (now() - interval '5 days')::timestamptz, 45,
    'operaciones', (now() - interval '9 days')::timestamptz),
 
   ('00000000-0000-4000-8000-000000000706',
-   '00000000-0000-4000-8000-0000000000c5', 'B2B-0005', null, 'correo',
+   '00000000-0000-4000-8000-0000000000c5', 'RTB-0005', null, 'correo',
    'Enviar la cotizacion de transferencias ajustada',
    'Ajustar el costo al volumen real que confirmo la gerencia financiera.',
    (now() + interval '1 day')::timestamptz, null, null,
    'ventas', (now() - interval '2 days')::timestamptz),
 
+  -- Sin ruta: la cuenta apenas escribio una consulta y todavia no abrio ninguna de las tres.
   ('00000000-0000-4000-8000-000000000707',
    '00000000-0000-4000-8000-0000000000c9', null,
    '00000000-0000-4000-8000-000000000411', 'llamada',
-   'Contactar al lead que llego por TikTok',
-   'Pregunto si el interes es para uso personal o para pagos de su negocio.',
+   'Llamar a la persona que pregunto por TikTok',
+   'Preguntar si el interes es para uso personal o para pagos de su negocio.',
    (now() + interval '4 hours')::timestamptz, null, null,
-   'soporte', (now() - interval '6 hours')::timestamptz)
-) as v(id, client_id, deal_code, conversation_id, type, title, body, due_at, done_at,
+   'soporte', (now() - interval '6 hours')::timestamptz),
+
+  ('00000000-0000-4000-8000-000000000708',
+   '00000000-0000-4000-8000-0000000000c3', 'RTC-0002', null, 'tarea',
+   'Clasificar el riesgo antes de dar de alta la cuenta',
+   'La ruta C queda bloqueada mientras el reclamo este abierto y falte el beneficiario final.',
+   (now() + interval '3 days')::timestamptz, null, null,
+   'compliance', (now() - interval '1 day')::timestamptz)
+) as v(id, client_id, route_code, conversation_id, type, title, body, due_at, done_at,
        duration_minutes, owner_role, created_at)
-left join public.deals d on d.code = v.deal_code
+left join public.routes r on r.code = v.route_code
 join lateral (
   select p.id
   from public.profiles p
@@ -1391,6 +1688,7 @@ join lateral (
 on conflict (id) do update set
   title = excluded.title,
   body = excluded.body,
+  route_id = excluded.route_id,
   due_at = excluded.due_at,
   done_at = excluded.done_at,
   duration_minutes = excluded.duration_minutes,
@@ -1404,7 +1702,7 @@ values
   ('00000000-0000-4000-8000-000000000b02', 'Pago a proveedores', '#1E3653'),
   ('00000000-0000-4000-8000-000000000b03', 'Prioridad alta', '#F3D014'),
   ('00000000-0000-4000-8000-000000000b04', 'Riesgo documental', '#B42318'),
-  ('00000000-0000-4000-8000-000000000b05', 'Cadencia activa', '#1E3653')
+  ('00000000-0000-4000-8000-000000000b05', 'Seguimiento activo', '#1E3653')
 on conflict (id) do update set name = excluded.name, color = excluded.color;
 
 insert into public.client_tags (client_id, tag_id)
@@ -1470,165 +1768,81 @@ on conflict (id) do update set
   handler_id = excluded.handler_id;
 -- reclamos-tres-estados
 
--- Ruta C: perfil de riesgo y recordatorio de condiciones del ECP. Es solo ficha y alerta.
--- El consumo real del cupo diario lo administra la plataforma central de Alyto y no se copia
--- en esta base; tope_operacion_bs se anota como referencia del mismo tope que vive en
--- ecp_parameters (Bs 120.000 por operacion).
-insert into public.client_ecp_profile
-  (client_id, usuario_alta_ecp, estado_usuario, tope_operacion_bs, cupo_mensual_operaciones,
-   riesgo, revisado_en, nota)
-values
-  ('00000000-0000-4000-8000-0000000000c1', null, 'activo', 120000, 40, 'medio',
-   current_date - 5, 'Volumen declarado por encima del promedio del entorno: revisar origen de fondos.'),
-  ('00000000-0000-4000-8000-0000000000c2', null, 'activo', 120000, 90, 'bajo',
-   current_date - 13, 'Cupo mensual acordado con la gerencia financiera.'),
-  ('00000000-0000-4000-8000-0000000000c3', null, 'no dado de alta', null, null, 'por clasificar',
-   null, 'No se da de alta hasta cerrar el beneficiario final y el reclamo abierto.'),
-  ('00000000-0000-4000-8000-0000000000c4', null, 'suspendido', null, null, 'alto',
-   current_date - 7, 'Documento de identidad observado; cadencia pausada.'),
-  ('00000000-0000-4000-8000-0000000000c5', null, 'activo', 100000, 60, 'bajo',
-   current_date - 20, null),
-  ('00000000-0000-4000-8000-0000000000c6', null, 'activo', 25000, 12, 'bajo',
-   current_date - 17, 'Uso personal con un solo destino.'),
-  ('00000000-0000-4000-8000-0000000000c7', null, 'activo', 50000, 20, 'por clasificar',
-   null, 'Clasificacion de riesgo pendiente del respaldo de origen de fondos.'),
-  ('00000000-0000-4000-8000-0000000000c8', null, 'no dado de alta', null, null, 'por clasificar',
-   null, null),
-  ('00000000-0000-4000-8000-0000000000c9', null, 'activo', 30000, 8, 'bajo',
-   current_date - 6, null)
-on conflict (client_id) do update set
-  estado_usuario = excluded.estado_usuario,
-  tope_operacion_bs = excluded.tope_operacion_bs,
-  cupo_mensual_operaciones = excluded.cupo_mensual_operaciones,
-  riesgo = excluded.riesgo,
-  revisado_en = excluded.revisado_en,
-  nota = excluded.nota;
--- perfil-ecp-nueve-cuentas
+-- Ruta C: la ficha del Entorno Controlado de Pruebas ya no tiene tabla propia. El riesgo, el
+-- tope por operacion, el cupo mensual y la fecha de revision viven en clients (seccion 2),
+-- porque son datos de la cuenta y no un expediente paralelo: la Ficha 360 los lee de una sola
+-- fila y el guardarrailes que reserva esa ficha a Cumplimiento se aplica sobre esa misma fila.
+--
+-- El consumo real del cupo lo administra la plataforma central de Alyto y no se copia en esta
+-- base. tope_operacion_bs es una referencia del mismo tope que vive en ecp_parameters
+-- (Bs 120.000 por operacion), y ecp_account queda vacio a proposito: ese numero lo entrega la
+-- app de pagos cuando la cuenta se da de alta alli.
 
--- Asiento de auditoria del propio sembrado, para que la bitacora no arranque vacia. La tabla
--- no tiene una llave natural donde hacer un on conflict, asi que se guarda con un not exists:
--- sin esa traba, cada ejecucion agregaria un asiento nuevo.
-insert into public.audit_events (actor, action, entity_type, detail)
-select 'sistema', 'semilla_aplicada', 'seed',
-       'Bandeja, cadencia, legajo, embudo y reclamos de demostracion cargados desde seed.sql'
-where not exists (select 1 from public.audit_events a where a.action = 'semilla_aplicada');
+-- La senal de consulta sin responder apunta al hilo que la origino. Se resuelve aqui, y no en la
+-- seccion 4, porque los hilos y sus mensajes se insertan despues.
+update public.signals
+   set conversation_id = '00000000-0000-4000-8000-000000000406'::uuid
+ where id = '00000000-0000-4000-8000-000000000403'::uuid
+   and conversation_id is null;
+
+-- El registro (la bitacora de quien hizo que y cuando) no arranca vacio y muestra los tres tipos
+-- de actor: una escritura del sistema, una deteccion de un agente y un intento humano rechazado
+-- por un guardarrailes. La tabla no tiene una llave natural donde hacer un on conflict, asi que
+-- cada asiento se protege con un not exists: sin esa traba, cada ejecucion agregaria filas.
+insert into public.audit_events
+  (actor, actor_kind, action, entity_type, entity_id, detail, outcome, created_at)
+select v.actor, v.actor_kind::public.audit_actor_kind, v.action, v.entity_type, v.entity_id,
+       v.detail, v.outcome::public.audit_outcome,
+       (now() - v.hace::interval)::timestamptz
+from (values
+  ('sistema'::text, 'sistema'::text, 'semilla_aplicada', 'seed'::text, null::text,
+   'Bandeja, senales, viajes, legajo, rutas y reclamos de demostracion cargados desde seed.sql',
+   'exito'::text, '1 hour'::interval),
+
+  ('agente-cumplimiento', 'agente', 'senal_detectada', 'signals',
+   '00000000-0000-4000-8000-000000000401',
+   'Documento de origen de fondos observado en Agroindustrial del Oriente S.A.',
+   'exito', '4 days'),
+
+  ('soporte@avfinance.bo', 'humano', 'mensaje_rechazado_por_glosario', 'messages', null,
+   'El envio contenia una expresion vetada; el mensaje no salio y la cuenta fue avisada por otro canal.',
+   'rechazado', '2 days')
+) as v(actor, actor_kind, action, entity_type, entity_id, detail, outcome, hace)
+where not exists (
+  select 1 from public.audit_events a
+  where a.action = v.action
+    and a.entity_id is not distinct from v.entity_id
+);
+-- registro-tres-actores
 
 -- ---------------------------------------------------------------------------
 -- 10. Comprobaciones
 -- ---------------------------------------------------------------------------
 
--- Salida esperada al terminar: 19 filas y ok = true en las 19. Solo hay una condicion: que
--- las cinco cuentas de Auth ya esten dadas de alta y el seed.sql se haya corrido una segunda
--- vez despues de eso. Hasta ese momento, perfiles_de_los_cinco_usuarios y
--- roles_alineados_por_la_seccion_0 salen en 0 y son las dos unicas en false.
---
--- hilos_vencidos_de_fondo no depende del reloj: pide los hilos que tienen garantias de estar
--- vencidos (mas de tres dias naturales, que siempre alcanzan una jornada habil completa). El
--- conteo total de la vista vw_conversations_sla si cambia con la hora y con el dia de la
--- semana en que se corre el sembrado, y puede ir de 3 a 5.
-
-select v.cheque, v.valor::text, v.esperado, (v.valor::text = v.esperado) as ok
-from (values
-  ('cuentas',
-   (select count(*) from public.clients where id between
-     '00000000-0000-4000-8000-0000000000c1'::uuid and '00000000-0000-4000-8000-0000000000c9'::uuid),
-   '9'),
-  ('contactos',
-   (select count(*) from public.contacts), '8'),
-  ('plantillas',
-   (select count(*) from public.templates), '8'),
-  ('conversaciones',
-   (select count(*) from public.conversations), '13'),
-  ('mensajes',
-   (select count(*) from public.messages), '42'),
-  ('hilos_en_bandeja_abierta',
-   (select count(*) from public.conversations
-    where status in ('abierta', 'en_espera_agente')
-      and deleted_at is null), '7'),
-  ('casillas_del_legajo',
-   (select count(*) from public.compliance_items), '60'),
-  ('documentos',
-   (select count(*) from public.documents), '16'),
-  ('ejecuciones_de_cadencia',
-   (select count(*) from public.cadence_executions), '24'),
-  ('pasos_de_cadencia_por_mandar',
-   (select count(*) from public.vw_cadence_pending), '2'),
-  ('reclamos',
-   (select count(*) from public.claims), '3'),
-  ('negocios_en_el_embudo',
-   (select count(*) from public.deals), '5'),
-  ('asientos_del_historial_del_embudo',
-   (select count(*) from public.deal_events), '17'),
-  ('terminos_de_bloqueo',
-   (select count(*) from public.blocked_terms where severity = 'bloqueo'), '7'),
-  ('terminos_de_advertencia',
-   (select count(*) from public.blocked_terms where severity = 'advertencia'), '3'),
-  ('mensajes_de_advertencia_en_la_bandeja',
-   (select count(*) from public.vw_messages_flagged), '1'),
-  ('hilos_vencidos_de_fondo',
-   (select count(*) from public.vw_conversations_sla
-     where vencida and last_inbound_at <= now() - interval '3 days'), '3'),
-  ('perfiles_de_los_cinco_usuarios',
-   (select count(*) from public.profiles), '5'),
-  ('roles_alineados_por_la_seccion_0',
-   (select count(*)
-    from public.profiles p
-    join (values
-      ('admin@avfinance.bo', 'admin'),
-      ('compliance@avfinance.bo', 'compliance'),
-      ('operaciones@avfinance.bo', 'operaciones'),
-      ('ventas@avfinance.bo', 'ventas'),
-      ('soporte@avfinance.bo', 'soporte')
-    ) as v(correo, rol) on p.email = v.correo and p.role = v.rol::public.user_role),
-   '5')
-) as v(cheque, valor, esperado);
+-- A proposito no hay una lista de conteos aqui: vive en verificacion.sql, que es el fichero que
+-- se corre despues del sembrado y el unico que hay que cerrar en verde. Dos listas de conteos en
+-- dos ficheros distintos se desalinean en cuanto se cambia el sembrado, y el desalineamiento no
+-- lo detecta nadie.
 
 -- ---------------------------------------------------------------------------
--- 11. Pruebas que deben fallar (a mano, no en este archivo)
+-- 11. Pruebas que deben fallar
 -- ---------------------------------------------------------------------------
 --
--- Cinco comprobaciones del guardarrailes (la traba que impide escribir lo que no debe). Se
--- corren una por una en el SQL Editor y las cinco tienen que devolver un error; si alguna
--- escribe la fila, el guardarrailes se cayo.
+-- No hay recetas escritas a mano aca: viven en pruebas-negativas.sql, que es un fichero
+-- ejecutable bloque por bloque y donde se agrego una traba nueva no se olvide de probarla. Dos
+-- listas de pruebas en dos ficheros distintos se desalinean en cuanto se cambia el modelo, que es
+-- exactamente el motivo por el que la seccion 10 tampoco lleva conteos.
 --
--- a) Un mensaje saliente con un termino vetado. Copie la palabra exacta de la lista de
---    severidad 'bloqueo' en 0006_glossary_seed.sql y escribala en el cuerpo:
+-- Lo unico que pruebas-negativas.sql no puede cubrir es la traba de la ficha del Entorno
+-- Controlado de Pruebas, y no por falta de ganas: el disparador
+-- clients_ficha_solo_cumplimiento (0004) mira quien escribe, y el SQL Editor del panel corre sin
+-- JWT, asi que current_user_id() devuelve vacio y la traba deja pasar por la excepcion que ella
+-- misma documenta. La prueba real lleva token de usuario y se hace desde la interfaz:
 --
---      insert into public.messages (conversation_id, direction, channel, body, external_msg_id)
---      values ('00000000-0000-4000-8000-000000000401', 'saliente', 'whatsapp',
---              'Texto de prueba con el termino vetado', 'prueba-bloqueo-0001');
+--   update public.clients set riesgo = 'alto'
+--   where id = '00000000-0000-4000-8000-0000000000c1';
 --
---    Esperado: error 'El mensaje contiene un termino no autorizado por el glosario'.
---    Un mensaje entrante con esa misma palabra SI entra: lo que escribe el cliente forma
---    parte del registro y bloquearlo perderia el mensaje.
---
--- b) Aprobar una casilla que pide documento sin documento aprobado:
---
---      update public.compliance_items set status = 'Aprobado'
---      where client_id = '00000000-0000-4000-8000-0000000000c1' and item_key = 'beneficiario_final';
---
---    Esperado: error 'La casilla ... requiere un documento aprobado antes de aprobarse'.
---
--- c) Escribir el historial del embudo sin la marca del sistema:
---
---      insert into public.deal_events (deal_id, to_stage, actor_email)
---      values ('00000000-0000-4000-8000-000000000601', 4, 'intruso@correo.demo.bo');
---
---    Esperado: error 'Esta tabla la mantiene el sistema'.
---
--- d) Editar un mensaje ya enviado (la prueba de un mensaje automatico con un paso de
---    cadencia que no le corresponde queda en el punto e):
---
---      update public.messages set body = 'texto alterado'
---      where id = '00000000-0000-4000-8000-000000000501';
---
---    Esperado: error 'Esta tabla la mantiene el sistema'.
---
--- e) Un paso de cadencia fuera de orden:
---
---      insert into public.cadence_steps (cadence_template_id, step_order, day_number, channel, template_code)
---      values ('00000000-0000-4000-8000-000000000301', 7, 3, 'whatsapp', 'PROSPECTO_B2B');
---
---    Esperado: error 'El paso ... debe caer despues del dia ...' (el paso 6 esta en el dia 14).
-
-
+--   Entrando como ventas u operaciones, esperado: error 'La ficha del Entorno Controlado de
+--   Pruebas la mueve solo Cumplimiento'. Entrando como admin o compliance, esperado: la fila
+--   cambia. Las ocho columnas que revisa son riesgo, tope, cupo, estado del usuario, estado del
+--   legajo, fecha de revision y nota.

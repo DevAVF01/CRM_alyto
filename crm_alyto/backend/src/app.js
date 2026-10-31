@@ -20,7 +20,12 @@ export function createApp() {
   app.locals.supabase = supabase;
 
   app.use(cors());
-  app.use(express.json({ limit: '1mb' }));
+  // La subida del legajo (F-18) lleva el archivo en base64: el parser global se queda en 1 MB y
+  // la ruta del documento levanta el suyo en 14 MB. Sin este salto, el cuerpo grande muere aqui.
+  app.use((req, res, next) => {
+    if (req.method === 'POST' && /^\/api\/crm\/fichas\/[\w-]+\/documentos$/.test(req.path)) return next();
+    return express.json({ limit: '1mb' })(req, res, next);
+  });
   app.use(requestLogger(logger));
 
   app.get('/api/health', (req, res) => {
@@ -28,7 +33,6 @@ export function createApp() {
       status: 'ok',
       service: 'crm-alyto-backend',
       environment: process.env.NODE_ENV || 'development',
-      network: 'Stellar Testnet',
       regime: 'Entorno Controlado de Pruebas (ECP) supervisado por la ASFI',
       runtime: runtimeStatus(),
     });

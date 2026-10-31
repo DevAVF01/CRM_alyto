@@ -9,3 +9,4 @@ logs/
 
 # Notas internas de ejecucion y de auditoria: se guardan en OneDrive, no en Git.
 documentacion-interna/
+crm_plan.md
